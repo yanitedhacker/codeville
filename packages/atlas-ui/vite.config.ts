@@ -10,6 +10,7 @@ export default defineConfig({
   // The export bundle swaps React for Preact: same components, ~550KB smaller file.
   resolve: {
     alias: {
+      '@codeville/core/explain/heuristic': r('../core/src/explain/heuristic.ts'),
       '@codeville/core': r('../core/src/index.ts'),
       react: 'preact/compat',
       'react-dom': 'preact/compat',

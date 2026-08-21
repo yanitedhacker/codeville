@@ -185,6 +185,27 @@
   border-color: var(--muted-strong);
 }
 
+.cv-fn {
+  display: block;
+  width: 100%;
+  margin-top: 8px;
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 10.5px;
+  color: var(--ink);
+  background: var(--input);
+  border: 1px solid var(--rule);
+  outline: none;
+}
+
+.cv-fn::placeholder {
+  color: var(--muted);
+}
+
+.cv-fn:focus {
+  border-color: var(--muted-strong);
+}
+
 .cv-areas {
   overflow-y: auto;
   padding-bottom: 8px;

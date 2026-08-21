@@ -10,11 +10,13 @@ import { heuristic } from '../../core/src/explain/heuristic.js'
 import { resolveExplainer } from '../../core/src/explain/adapters.js'
 import { renderStandaloneHtml } from '../../atlas-ui/src/standalone-html.js'
 import { readRepo } from './readdir.js'
+import { runAsk, type AskArgs } from './ask.js'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const BUNDLE_DIR = resolve(HERE, '../../../apps/web/public/standalone')
 
-interface Args {
+interface GenerateArgs {
+  command: 'generate'
   root: string
   out: string
   explain: string
@@ -24,16 +26,27 @@ interface Args {
   concurrency?: number
 }
 
-const USAGE = `codeville <path-to-repo> [options]
+export type CliArgs = GenerateArgs | AskArgs
 
-  -o, --out <file>       output path (.html or .json)   default: <name>-atlas.html
+const USAGE = `codeville <path-to-repo> [options]
+codeville ask <path-to-repo> --node <file> --fn <name> --question <text> [options]
+
+  -o, --out <file>       output path (.html or .json)
+                         generate default: <name>-atlas.html
+                         ask default: do not write
   -e, --explain <spec>   heuristic | codex | claude | openai | anthropic
                          | cli:<command> | module:<path>   default: heuristic
       --max-nodes <n>    visible node budget (includes packages)   default: 220
                          a file plus its area slab may exceed 1
       --exclude <paths>  comma-separated path prefixes to drop
-      --no-cache         ignore the explanation cache in ~/.cache/codeville
+      --no-cache         ignore the cache in ~/.cache/codeville
   -j, --concurrency <n>  parallel explainer calls   default: 4 (cli) / 6 (api)
+
+ask:
+      --node <path>      atlas file node (repo-relative)
+      --fn <name>        must appear in that file's outline
+      --question <text>  asked in city context; printed to stdout
+      --atlas <file>     atlas.json from a prior generate; otherwise build in-process
 `
 
 async function main(argv: string[]): Promise<void> {
@@ -43,6 +56,15 @@ async function main(argv: string[]): Promise<void> {
     process.exit(argv.length ? 1 : 0)
   }
 
+  if (args.command === 'ask') {
+    await runAsk(args)
+    return
+  }
+
+  await generate(args)
+}
+
+async function generate(args: GenerateArgs): Promise<void> {
   const t0 = Date.now()
   const { files, skipped, truncated } = await readRepo(args.root)
   if (files.length === 0) {
@@ -82,7 +104,7 @@ async function main(argv: string[]): Promise<void> {
   log(`wrote ${args.out} in ${Date.now() - t0}ms`)
 }
 
-async function explain(atlas: Atlas, args: Args, files: VirtualFile[]): Promise<Atlas> {
+async function explain(atlas: Atlas, args: GenerateArgs, files: VirtualFile[]): Promise<Atlas> {
   const text = new Map(files.map((f) => [f.path, f.text]))
   const requests = toRequests(atlas, {
     sourceOf: (path) => {
@@ -173,7 +195,14 @@ async function readCache(path: string): Promise<Map<string, Explanation>> {
   }
 }
 
-function parseArgs(argv: string[]): Args | null {
+function parseArgs(argv: string[]): CliArgs | null {
+  let command: 'generate' | 'ask' = 'generate'
+  let i = 0
+  if (argv[0] === 'ask') {
+    command = 'ask'
+    i = 1
+  }
+
   let root: string | null = null
   let out: string | null = null
   let explainSpec = 'heuristic'
@@ -181,8 +210,12 @@ function parseArgs(argv: string[]): Args | null {
   let exclude: string[] = []
   let noCache = false
   let concurrency: number | undefined
+  let node: string | undefined
+  let fn: string | undefined
+  let question: string | undefined
+  let atlas: string | undefined
 
-  for (let i = 0; i < argv.length; i++) {
+  for (; i < argv.length; i++) {
     const arg = argv[i] as string
     const next = (): string => {
       const value = argv[++i]
@@ -200,20 +233,42 @@ function parseArgs(argv: string[]): Args | null {
     else if (arg === '--exclude') exclude = next().split(',').map((s) => s.trim()).filter(Boolean)
     else if (arg === '--no-cache') noCache = true
     else if (arg === '-j' || arg === '--concurrency') concurrency = Number(next())
+    else if (command === 'ask' && arg === '--node') node = next()
+    else if (command === 'ask' && arg === '--fn') fn = next()
+    else if (command === 'ask' && arg === '--question') question = next()
+    else if (command === 'ask' && arg === '--atlas') atlas = next()
     else if (arg.startsWith('-')) throw new Error(`Unknown option ${arg}`)
     else root = arg
   }
 
   if (!root) return null
   const abs = resolve(process.cwd(), root)
-  return {
+  const shared = {
     root: abs,
-    out: resolve(process.cwd(), out ?? `${slugName(abs.split('/').pop() ?? 'repo')}-atlas.html`),
     explain: explainSpec,
     ...(maxNodes !== undefined ? { maxNodes } : {}),
     exclude,
     noCache,
     ...(concurrency !== undefined && Number.isFinite(concurrency) ? { concurrency } : {}),
+  }
+
+  if (command === 'ask') {
+    if (!node || !fn || !question) throw new Error('ask needs --node, --fn, and --question')
+    return {
+      command: 'ask',
+      ...shared,
+      node,
+      fn,
+      question,
+      ...(atlas ? { atlas: resolve(process.cwd(), atlas) } : {}),
+      ...(out ? { out: resolve(process.cwd(), out) } : {}),
+    }
+  }
+
+  return {
+    command: 'generate',
+    ...shared,
+    out: resolve(process.cwd(), out ?? `${slugName(abs.split('/').pop() ?? 'repo')}-atlas.html`),
   }
 }
 

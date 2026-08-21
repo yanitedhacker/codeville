@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { Atlas as AtlasData, AtlasNode } from '@codeville/core'
+import type { Atlas as AtlasData, AtlasLink, AtlasNode } from '@codeville/core'
 import { AtlasRenderer, subLabel } from './renderer.js'
 import { Header } from './panels/Header.js'
 import { SystemMap } from './panels/SystemMap.js'
-import { Inspect, type Tab } from './panels/Inspect.js'
+import { Inspect, type InspectTarget, type Tab } from './panels/Inspect.js'
 import './theme.css'
 
 export interface AtlasProps {
@@ -25,7 +25,8 @@ export function Atlas({ atlas, caption = 'Local source atlas / read-only project
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const rendererRef = useRef<AtlasRenderer | null>(null)
 
-  const [selected, setSelected] = useState<string | null>(null)
+  const [selected, setSelected] = useState<string[]>([])
+  const [selectedLink, setSelectedLink] = useState<AtlasLink | null>(null)
   const [hovered, setHovered] = useState<string | null>(null)
   const [activeArea, setActiveArea] = useState<string | null>(null)
   const [filter, setFilter] = useState('')
@@ -46,7 +47,18 @@ export function Atlas({ atlas, caption = 'Local source atlas / read-only project
         const node = id ? byId.get(id) : null
         setTip(node && screen ? { node, x: screen.x, y: screen.y } : null)
       },
-      onSelect: (id) => setSelected(id),
+      onSelect: (id) => {
+        setSelectedLink(null)
+        setSelected(id ? [id] : [])
+      },
+      onToggleSelect: (id) => {
+        setSelectedLink(null)
+        setSelected((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
+      },
+      onSelectLink: (link) => {
+        setSelectedLink(link)
+        setSelected(link ? [link.from, link.to] : [])
+      },
     })
     rendererRef.current = renderer
 
@@ -65,17 +77,27 @@ export function Atlas({ atlas, caption = 'Local source atlas / read-only project
   }, [atlas, byId])
 
   useEffect(() => {
-    rendererRef.current?.setView({ selected, hovered, activeArea, filter, flowing })
-  }, [selected, hovered, activeArea, filter, flowing])
+    rendererRef.current?.setView({ selected, selectedLink, hovered, activeArea, filter, flowing })
+  }, [selected, selectedLink, hovered, activeArea, filter, flowing])
 
-  // Selecting from a list should also bring the block into view.
+  // Selecting from a list should also bring the block into view. Replaces the set.
   const selectFromList = useCallback((id: string) => {
-    setSelected(id)
+    setSelectedLink(null)
+    setSelected([id])
     rendererRef.current?.focusNode(id)
   }, [])
 
-  const shown = (hovered && byId.get(hovered)) || (selected && byId.get(selected)) || null
-  const pinned = !hovered && selected != null
+  const target = useMemo((): InspectTarget => {
+    if (hovered) {
+      const node = byId.get(hovered)
+      if (node) return { type: 'hover', node }
+    }
+    if (selectedLink) return { type: 'link', link: selectedLink }
+    const nodes = selected.map((id) => byId.get(id)).filter((n): n is AtlasNode => n != null)
+    if (nodes.length > 1) return { type: 'set', nodes }
+    if (nodes.length === 1) return { type: 'node', node: nodes[0]! }
+    return { type: 'empty' }
+  }, [hovered, selected, selectedLink, byId])
 
   return (
     <div className="cv-root">
@@ -90,7 +112,8 @@ export function Atlas({ atlas, caption = 'Local source atlas / read-only project
         onReset={() => {
           setActiveArea(null)
           setFilter('')
-          setSelected(null)
+          setSelected([])
+          setSelectedLink(null)
           rendererRef.current?.resetView()
         }}
       />
@@ -110,7 +133,7 @@ export function Atlas({ atlas, caption = 'Local source atlas / read-only project
           <div className="cv-stage-top">
             <div className="cv-stage-title">
               <span className="cv-label">The codebase</span>
-              <span className="cv-label">Drag to pan / scroll to zoom</span>
+              <span className="cv-label">Drag to pan / scroll to zoom / Shift-click to add</span>
             </div>
             <span className="cv-label">{flowing ? 'Flow active' : 'Flow paused'}</span>
           </div>
@@ -127,8 +150,7 @@ export function Atlas({ atlas, caption = 'Local source atlas / read-only project
 
       <Inspect
         atlas={atlas}
-        node={shown}
-        pinned={pinned}
+        target={target}
         tab={tab}
         onTab={setTab}
         onSelect={selectFromList}
@@ -138,11 +160,28 @@ export function Atlas({ atlas, caption = 'Local source atlas / read-only project
         <span className="cv-label">{caption}</span>
         <span className="cv-label">
           {footerExtra}
-          {shown ? shown.path : 'awaiting selection'}
+          {footerCaption(target, byId)}
         </span>
       </footer>
     </div>
   )
+}
+
+function footerCaption(target: InspectTarget, byId: Map<string, AtlasNode>): string {
+  switch (target.type) {
+    case 'empty':
+      return 'awaiting selection'
+    case 'hover':
+    case 'node':
+      return target.node.path
+    case 'set':
+      return `${target.nodes.length.toLocaleString('en-US')} selected`
+    case 'link': {
+      const from = byId.get(target.link.from)?.path ?? target.link.from
+      const to = byId.get(target.link.to)?.path ?? target.link.to
+      return `${from} → ${to}`
+    }
+  }
 }
 
 function LegendItem({ kind, text }: { kind: string; text: string }) {
