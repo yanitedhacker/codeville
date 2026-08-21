@@ -1,10 +1,7 @@
 <!-- repo.meta
-  owner: OWNER
+  owner: yanitedhacker
   repo: codeville
-  clone: https://github.com/OWNER/codeville.git
-  Replace OWNER in this README (badges, clone URL), package.json
-  (repository / bugs / homepage), SECURITY.md, and
-  .github/ISSUE_TEMPLATE/config.yml.
+  clone: https://github.com/yanitedhacker/codeville.git
 -->
 
 <h1 align="center">
@@ -16,7 +13,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/OWNER/codeville/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/OWNER/codeville/ci.yml?branch=main&style=for-the-badge&label=CI&color=1A1C11&labelColor=e4e1be"></a>
+  <a href="https://github.com/yanitedhacker/codeville/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/yanitedhacker/codeville/ci.yml?branch=main&style=for-the-badge&label=CI&color=1A1C11&labelColor=e4e1be"></a>
   <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-1A1C11?style=for-the-badge&labelColor=e4e1be"></a>
   <a href="package.json"><img alt="Node 20+" src="https://img.shields.io/badge/node-20%2B-1A1C11?style=for-the-badge&labelColor=e4e1be"></a>
 </p>
@@ -38,7 +35,7 @@ You cannot hold a 400-file tree in your head. A map you can pan is the point. If
 ## Quick start
 
 ```bash
-git clone https://github.com/OWNER/codeville.git
+git clone https://github.com/yanitedhacker/codeville.git
 cd codeville
 pnpm install
 pnpm -F @codeville/atlas-ui build

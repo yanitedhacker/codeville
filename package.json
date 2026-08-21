@@ -9,12 +9,12 @@
   "packageManager": "pnpm@10.12.1",
   "repository": {
     "type": "git",
-    "url": "https://github.com/OWNER/codeville.git"
+    "url": "https://github.com/yanitedhacker/codeville.git"
   },
   "bugs": {
-    "url": "https://github.com/OWNER/codeville/issues"
+    "url": "https://github.com/yanitedhacker/codeville/issues"
   },
-  "homepage": "https://github.com/OWNER/codeville#readme",
+  "homepage": "https://github.com/yanitedhacker/codeville#readme",
   "scripts": {
     "dev": "pnpm -F @codeville/web dev",
     "build": "pnpm -F @codeville/web build",

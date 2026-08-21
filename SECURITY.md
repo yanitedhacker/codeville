@@ -2,7 +2,7 @@
 
 Report privately. Do not file a public issue for an unpatched vulnerability.
 
-Use [GitHub Security Advisories](https://github.com/OWNER/codeville/security/advisories/new) on `OWNER/codeville`. If that form is not available yet, wait until private vulnerability reporting is on; do not dump a repro in Issues.
+Use [GitHub Security Advisories](https://github.com/yanitedhacker/codeville/security/advisories/new) on `yanitedhacker/codeville`. If that form is not available yet, wait until private vulnerability reporting is on; do not dump a repro in Issues.
 
 ## Trust model
 

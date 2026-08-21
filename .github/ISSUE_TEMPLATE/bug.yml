@@ -4,7 +4,7 @@ labels: [bug]
 body:
   - type: markdown
     attributes:
-      value: Security issues go through [SECURITY.md](https://github.com/OWNER/codeville/blob/main/SECURITY.md), not here.
+      value: Security issues go through [SECURITY.md](https://github.com/yanitedhacker/codeville/blob/main/SECURITY.md), not here.
   - type: textarea
     id: what
     attributes:
