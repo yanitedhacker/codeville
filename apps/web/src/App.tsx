@@ -19,10 +19,16 @@ export function App() {
   const run = useCallback(async (label: string, load: () => Promise<Ingested>) => {
     setPhase({ kind: 'working', label })
     try {
-      const { name, files, truncated, omittedWorkspaces } = await load()
+      const { name, files, truncated, omittedWorkspaces, omittedCargo } = await load()
       // Yield once so the working state paints before the analyzer blocks the thread.
       await new Promise((r) => setTimeout(r, 0))
-      const built = buildAtlas(files, { repoName: name, ...(omittedWorkspaces ? { omittedWorkspaces } : {}) })
+      const built = buildAtlas(files, {
+        repoName: name,
+        omitted: {
+          ...(omittedWorkspaces ? { npm: omittedWorkspaces } : {}),
+          ...(omittedCargo ? { cargo: omittedCargo } : {}),
+        },
+      })
       // The heuristic explainer is pure and cheap, so the browser path fills the
       // summary panel exactly like the CLI does. AI adapters are node-only.
       const withProse = applyExplanations(built, await heuristic.explain(toRequests(built)))

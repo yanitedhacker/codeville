@@ -68,6 +68,20 @@ describe('extract', () => {
     expect(result.truncated).toBe(true)
     expect(result.files.reduce((n, f) => n + f.text.length, 0)).toBeLessThanOrEqual(12 * 1024 * 1024)
   })
+
+  it('reports Cargo.toml files dropped by the manifest cap', () => {
+    const entries = Array.from({ length: 201 }, (_, i) => {
+      const id = String(i).padStart(3, '0')
+      return {
+        name: `owner-name/crates/c${id}/Cargo.toml`,
+        body: Buffer.from(`[package]\nname = "c${id}"\n`),
+      }
+    })
+    const result = extract(gzipSync(packUstar(entries)), 'owner/name', 'main')
+    expect(result.omittedWorkspaces).toBe(0)
+    expect(result.omittedCargo).toBe(1)
+    expect(result.files.filter((f) => /(^|\/)Cargo\.toml$/.test(f.path))).toHaveLength(200)
+  })
 })
 
 function packUstar(entries: { name: string; body: Buffer }[]): Buffer {

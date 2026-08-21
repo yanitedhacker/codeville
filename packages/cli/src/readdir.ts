@@ -21,6 +21,7 @@ export interface ReadRepoResult {
   skipped: number
   truncated: boolean
   omittedWorkspaces: number
+  omittedCargo: number
 }
 
 export async function readRepo(root: string, maxFiles = 8000): Promise<ReadRepoResult> {
@@ -112,8 +113,8 @@ export async function readRepo(root: string, maxFiles = 8000): Promise<ReadRepoR
   await walk(root, 0)
   files.sort((a, b) => (a.path < b.path ? -1 : 1))
   const omittedWorkspaces = capNamed(files, 'package.json', MAX_MANIFESTS)
-  capNamed(files, 'Cargo.toml', MAX_MANIFESTS)
-  return { files, skipped, truncated, omittedWorkspaces }
+  const omittedCargo = capNamed(files, 'Cargo.toml', MAX_MANIFESTS)
+  return { files, skipped, truncated, omittedWorkspaces, omittedCargo }
 }
 
 function capNamed(files: VirtualFile[], basename: string, max: number): number {

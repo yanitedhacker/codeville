@@ -5,9 +5,14 @@ import { createResolver, joinRepoPath, MAX_MANIFESTS, readCargoCrates, readGoMod
 import { buildGraph } from './graph.js'
 import { layout } from './layout.js'
 
+/** Manifests ingest dropped before scan, when known. Counts stay per kind. */
+export interface OmittedManifests {
+  npm?: number
+  cargo?: number
+}
+
 export interface BuildAtlasOptions extends BuildOptions, ScanOptions {
-  /** package.json files ingest dropped before scan, when known. */
-  omittedWorkspaces?: number
+  omitted?: OmittedManifests
 }
 
 export function buildAtlas(files: VirtualFile[], opts: BuildAtlasOptions = {}): Atlas {
@@ -31,15 +36,14 @@ export function buildAtlas(files: VirtualFile[], opts: BuildAtlasOptions = {}): 
 
   const name = opts.repoName ?? readPackageName(pkg?.text) ?? 'repository'
   const shownPkgs = graph.nodes.filter((n) => n.kind === 'external').length
-  const manifestCount = files.filter((f) => /(^|\/)package\.json$/.test(f.path)).length
-  const omittedWorkspaces = opts.omittedWorkspaces ?? Math.max(0, manifestCount - MAX_MANIFESTS)
+  const omitted = resolveOmitted(files, opts)
 
   return {
     repo: {
       name,
       ...(opts.ref ? { ref: opts.ref } : {}),
       generatedAt: (opts.now ?? (() => new Date().toISOString()))(),
-      note: buildNote(name, graph.denseAreas, shownPkgs, graph.packages, omittedWorkspaces),
+      note: buildNote(name, graph.denseAreas, shownPkgs, graph.packages, omitted),
     },
     stats: {
       nodes: positioned.length,
@@ -54,7 +58,28 @@ export function buildAtlas(files: VirtualFile[], opts: BuildAtlasOptions = {}): 
   }
 }
 
-function buildNote(name: string, rolledAreas: string[], shownPkgs = 0, totalPkgs = 0, omittedWorkspaces = 0): string {
+function countByBasename(files: VirtualFile[], basename: string): number {
+  return files.filter((f) => f.path === basename || f.path.endsWith('/' + basename)).length
+}
+
+function resolveOmitted(files: VirtualFile[], opts: BuildAtlasOptions): { npm: number; cargo: number } {
+  const npm = opts.omitted?.npm ?? Math.max(0, countByBasename(files, 'package.json') - MAX_MANIFESTS)
+  const cargo = opts.omitted?.cargo ?? Math.max(0, countByBasename(files, 'Cargo.toml') - MAX_MANIFESTS)
+  return { npm, cargo }
+}
+
+function omittedPhrase(n: number, singular: string, plural: string): string | null {
+  if (n <= 0) return null
+  return `${n} ${n === 1 ? singular : plural}`
+}
+
+function buildNote(
+  name: string,
+  rolledAreas: string[],
+  shownPkgs = 0,
+  totalPkgs = 0,
+  omitted: { npm: number; cargo: number } = { npm: 0, cargo: 0 },
+): string {
   const rolled = rolledAreas.length
     ? ` ${humanList(rolledAreas)} ${rolledAreas.length === 1 ? 'is' : 'are'} rolled into single blocks.`
     : ''
@@ -62,16 +87,17 @@ function buildNote(name: string, rolledAreas: string[], shownPkgs = 0, totalPkgs
     totalPkgs > shownPkgs && shownPkgs >= 0
       ? ` ${shownPkgs} of ${totalPkgs} packages shown.`
       : ''
-  const omitted =
-    omittedWorkspaces > 0
-      ? ` ${omittedWorkspaces} workspace package${omittedWorkspaces === 1 ? '' : 's'} omitted.`
-      : ''
+  const bits = [
+    omittedPhrase(omitted.npm, 'workspace package', 'workspace packages'),
+    omittedPhrase(omitted.cargo, 'cargo crate', 'cargo crates'),
+  ].filter((s): s is string => s !== null)
+  const omittedNote = bits.length ? ` ${bits.join(' and ')} omitted.` : ''
   return (
     `This is a focused source slice of ${name}, not the whole checkout. ` +
     `node_modules, build outputs, lockfiles, .env files, and nested worktrees are excluded.` +
     rolled +
     pkgs +
-    omitted +
+    omittedNote +
     ` Dots are import packets.`
   )
 }

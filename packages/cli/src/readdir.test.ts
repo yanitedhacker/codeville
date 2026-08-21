@@ -63,4 +63,22 @@ describe('readRepo', () => {
       await rm(dir, { recursive: true, force: true })
     }
   })
+
+  it('reports Cargo.toml files dropped by the manifest cap', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'cv-cargo-manifests-'))
+    try {
+      await writeFile(join(dir, 'lib.rs'), 'pub fn a() {}\n')
+      for (let i = 0; i < 201; i++) {
+        const id = String(i).padStart(3, '0')
+        await mkdir(join(dir, `c${id}`))
+        await writeFile(join(dir, `c${id}`, 'Cargo.toml'), `[package]\nname = "c${id}"\n`)
+      }
+      const { files, omittedWorkspaces, omittedCargo } = await readRepo(dir)
+      expect(omittedWorkspaces).toBe(0)
+      expect(omittedCargo).toBe(1)
+      expect(files.filter((f) => /(^|\/)Cargo\.toml$/.test(f.path))).toHaveLength(200)
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
 })
