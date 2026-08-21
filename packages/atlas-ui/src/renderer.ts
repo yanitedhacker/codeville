@@ -1,8 +1,9 @@
 import type { Atlas, AtlasLink, AtlasNode } from '@codeville/core'
-import { UNIT, arc, bezier, halfWidth, hitNode, project, shade, slabFaces, sortByDepth, type Point } from './iso.js'
+import { UNIT, arc, bezier, halfWidth, hitLink, hitNode, project, shade, slabFaces, sortByDepth, type Point } from './iso.js'
 
 export interface ViewState {
-  selected: string | null
+  selected: string[]
+  selectedLink: AtlasLink | null
   hovered: string | null
   activeArea: string | null
   filter: string
@@ -11,7 +12,11 @@ export interface ViewState {
 
 export interface RendererCallbacks {
   onHover(id: string | null, screen: { x: number; y: number } | null): void
+  /** Plain click. `null` clears the set. Inspect list clicks use this too. */
   onSelect(id: string | null): void
+  /** Shift or Meta click on a block. */
+  onToggleSelect(id: string): void
+  onSelectLink(link: AtlasLink | null): void
 }
 
 const PALETTE = {
@@ -46,7 +51,7 @@ export class AtlasRenderer {
   private readonly cb: RendererCallbacks
 
   private atlas: Atlas
-  private view: ViewState = { selected: null, hovered: null, activeArea: null, filter: '', flowing: true }
+  private view: ViewState = { selected: [], selectedLink: null, hovered: null, activeArea: null, filter: '', flowing: true }
 
   private nodeById = new Map<string, AtlasNode>()
   private ordered: AtlasNode[] = []
@@ -94,12 +99,7 @@ export class AtlasRenderer {
   setView(next: Partial<ViewState>): void {
     const before = this.view
     this.view = { ...before, ...next }
-    if (
-      before.selected !== this.view.selected ||
-      before.hovered !== this.view.hovered ||
-      before.activeArea !== this.view.activeArea ||
-      before.filter !== this.view.filter
-    ) {
+    if (viewChanged(before, this.view)) {
       this.layersDirty = true
       this.draw()
     }
@@ -274,14 +274,14 @@ export class AtlasRenderer {
 
     this.drawGrid(ctx)
 
-    const hot = this.view.hovered ?? this.view.selected
+    const selectedSet = new Set(this.view.selected)
     const hotLinks: AtlasLink[] = []
 
     for (const link of this.atlas.links) {
       const a = this.nodeById.get(link.from)
       const b = this.nodeById.get(link.to)
       if (!a || !b) continue
-      if (hot && (link.from === hot || link.to === hot)) { hotLinks.push(link); continue }
+      if (this.isLinkHot(link, selectedSet)) { hotLinks.push(link); continue }
       this.strokeLink(ctx, a, b, link.type, false)
     }
     for (const link of hotLinks) {
@@ -388,7 +388,7 @@ export class AtlasRenderer {
       // Below ~0.55 zoom a block is smaller than its own caption, so labels
       // stop being information and start being noise.
       const shouldLabel =
-        node.id === this.view.selected ||
+        this.isSelectedId(node.id) ||
         node.id === this.view.hovered ||
         (this.zoom > 0.55 && this.labelled.has(node.id)) ||
         this.zoom > 1.6
@@ -404,7 +404,7 @@ export class AtlasRenderer {
 
   private drawSlab(ctx: CanvasRenderingContext2D, node: AtlasNode, base: string, inFocus: boolean): void {
     const faces = slabFaces(node)
-    const selected = node.id === this.view.selected
+    const selected = this.isSelectedId(node.id)
     const hovered = node.id === this.view.hovered
     const inv = 1 / this.zoom
 
@@ -451,7 +451,7 @@ export class AtlasRenderer {
     ctx.textAlign = 'center'
     ctx.textBaseline = 'middle'
 
-    const strong = node.id === this.view.selected || node.id === this.view.hovered
+    const strong = this.isSelectedId(node.id) || node.id === this.view.hovered
     ctx.font = `${strong ? 600 : 500} 9px "JetBrains Mono", ui-monospace, monospace`
     ctx.fillStyle = strong ? PALETTE.ink : inFocus ? 'rgba(26,28,17,0.86)' : 'rgba(26,28,17,0.52)'
     ctx.fillText(node.label, 0, -1)
@@ -465,11 +465,11 @@ export class AtlasRenderer {
   private drawPackets(): void {
     const { ctx } = this
     this.applyTransform(ctx)
-    const hot = this.view.hovered ?? this.view.selected
+    const selectedSet = new Set(this.view.selected)
     const r = 1.9 / this.zoom
 
     for (const p of this.packets) {
-      const isHot = hot != null && (p.link.from === hot || p.link.to === hot)
+      const isHot = this.isLinkHot(p.link, selectedSet)
       const { sx, sy } = bezier(p.p0, p.c, p.p1, p.t)
       ctx.beginPath()
       ctx.arc(sx, sy, isHot ? r * 1.7 : r, 0, Math.PI * 2)
@@ -480,7 +480,7 @@ export class AtlasRenderer {
     ctx.globalAlpha = 1
   }
 
-  private nodeAt(clientX: number, clientY: number): AtlasNode | null {
+  private layoutPoint(clientX: number, clientY: number): Point | null {
     if (this.layersDirty) this.draw()
     const rect = this.canvas.getBoundingClientRect()
     const cssX = clientX - rect.left
@@ -488,11 +488,47 @@ export class AtlasRenderer {
     if (cssX < 0 || cssY < 0 || cssX > this.width || cssY > this.height) return null
     const zoom = this.zoom || 1
     // Inverse of applyTransform: DPR cancels between CSS pixels and the dpr scale.
-    const p = {
+    return {
       sx: (cssX - this.width / 2 - this.camX) / zoom,
       sy: (cssY - this.height / 2 - this.camY) / zoom,
     }
-    return hitNode(this.ordered, p)
+  }
+
+  private nodeAt(clientX: number, clientY: number): AtlasNode | null {
+    const p = this.layoutPoint(clientX, clientY)
+    return p ? hitNode(this.ordered, p) : null
+  }
+
+  private linkAt(clientX: number, clientY: number): AtlasLink | null {
+    const p = this.layoutPoint(clientX, clientY)
+    return p ? hitLink(this.atlas.links, this.nodeById, p, this.zoom || 1) : null
+  }
+
+  private isSelectedId(id: string): boolean {
+    if (this.view.selected.includes(id)) return true
+    const link = this.view.selectedLink
+    return link != null && (link.from === id || link.to === id)
+  }
+
+  private isLinkHot(link: AtlasLink, selectedSet: Set<string>): boolean {
+    const { hovered, selectedLink } = this.view
+    if (
+      selectedLink &&
+      selectedLink.from === link.from &&
+      selectedLink.to === link.to &&
+      selectedLink.type === link.type
+    ) {
+      return true
+    }
+    if (hovered && (link.from === hovered || link.to === hovered)) return true
+    if (selectedSet.size === 1) {
+      const id = this.view.selected[0]!
+      return link.from === id || link.to === id
+    }
+    if (selectedSet.size >= 2 && link.type !== 'containment') {
+      return selectedSet.has(link.from) && selectedSet.has(link.to)
+    }
+    return false
   }
 
   // --- interaction --------------------------------------------------------
@@ -514,7 +550,9 @@ export class AtlasRenderer {
   }
 
   private onPointerDown = (e: PointerEvent): void => {
-    this.dragging = true
+    // Shift/Meta click toggles; do not start a pan. Unmodified clicks still
+    // use the dragMoved threshold below.
+    this.dragging = !(e.shiftKey || e.metaKey)
     this.dragMoved = false
     this.lastPointer = { x: e.clientX, y: e.clientY }
     this.canvas.setPointerCapture(e.pointerId)
@@ -544,12 +582,23 @@ export class AtlasRenderer {
   }
 
   private onPointerUp = (e: PointerEvent): void => {
-    if (this.dragging && !this.dragMoved) {
-      const node = this.nodeAt(e.clientX, e.clientY)
-      this.cb.onSelect(node?.id ?? null)
-    }
+    const click = !this.dragMoved
     this.dragging = false
     if (this.canvas.hasPointerCapture(e.pointerId)) this.canvas.releasePointerCapture(e.pointerId)
+    if (!click) return
+
+    const node = this.nodeAt(e.clientX, e.clientY)
+    if (node) {
+      if (e.shiftKey || e.metaKey) this.cb.onToggleSelect(node.id)
+      else this.cb.onSelect(node.id)
+      return
+    }
+    const found = this.linkAt(e.clientX, e.clientY)
+    if (found) this.cb.onSelectLink(found)
+    else {
+      this.cb.onSelect(null)
+      this.cb.onSelectLink(null)
+    }
   }
 
   private onPointerLeave = (): void => {
@@ -592,6 +641,20 @@ function fill(ctx: CanvasRenderingContext2D, pts: Point[], style: string): void 
   trace(ctx, pts)
   ctx.fillStyle = style
   ctx.fill()
+}
+
+function viewChanged(before: ViewState, next: ViewState): boolean {
+  return (
+    before.selected.join('\0') !== next.selected.join('\0') ||
+    linkKey(before.selectedLink) !== linkKey(next.selectedLink) ||
+    before.hovered !== next.hovered ||
+    before.activeArea !== next.activeArea ||
+    before.filter !== next.filter
+  )
+}
+
+function linkKey(link: AtlasLink | null): string {
+  return link ? `${link.type}\0${link.from}\0${link.to}` : ''
 }
 
 export function subLabel(node: AtlasNode): string {

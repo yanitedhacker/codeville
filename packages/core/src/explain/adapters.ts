@@ -45,12 +45,11 @@ export interface AdapterOptions {
 export function cliExplainer(command: string, opts: AdapterOptions = {}): Explainer {
   const concurrency = opts.concurrency ?? 4
   const timeoutMs = opts.timeoutMs ?? 120_000
+  const { bin, preArgs } = splitCommand(command)
   return {
     id: `cli:${command}`,
     fingerprint: PROMPT_VERSION,
     async explain(batch) {
-      const [bin, ...preArgs] = command.split(/\s+/) as [string, ...string[]]
-
       const out = new Map<string, Explanation>()
       let done = 0
       let failed = 0
@@ -71,7 +70,22 @@ export function cliExplainer(command: string, opts: AdapterOptions = {}): Explai
   }
 }
 
-async function runCli(bin: string, args: string[], timeoutMs: number): Promise<string> {
+/** Map --explain claude|codex|cli:<cmd> to spawn argv. No shell. */
+export function cliBinArgs(spec: string): { bin: string; preArgs: string[] } {
+  if (spec === 'codex') return splitCommand('codex exec')
+  if (spec === 'claude') return splitCommand('claude -p')
+  if (spec.startsWith('cli:')) return splitCommand(spec.slice(4))
+  throw new Error(`ask explainer "${spec}" is not a CLI. Use heuristic | claude | codex | cli:<cmd>`)
+}
+
+function splitCommand(command: string): { bin: string; preArgs: string[] } {
+  const parts = command.trim().split(/\s+/).filter(Boolean)
+  const bin = parts[0]
+  if (!bin) throw new Error('empty cli command')
+  return { bin, preArgs: parts.slice(1) }
+}
+
+export async function runCli(bin: string, args: string[], timeoutMs: number): Promise<string> {
   const { spawn } = await import('node:child_process')
   return new Promise((resolve, reject) => {
     const child = spawn(bin, args, { stdio: ['ignore', 'pipe', 'ignore'] })

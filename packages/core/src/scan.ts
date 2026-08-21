@@ -1,5 +1,6 @@
 import type { FileRecord, VirtualFile } from './types.js'
 import { extractImports } from './lang/index.js'
+import { outline } from './outline.js'
 
 const IGNORED_DIRS = new Set([
   'node_modules', '.git', '.next', '.nuxt', '.svelte-kit', '.turbo', '.vercel',
@@ -76,6 +77,7 @@ export function scan(files: VirtualFile[], opts: ScanOptions = {}): FileRecord[]
     const slash = path.lastIndexOf('/')
     const name = path.slice(slash + 1)
     const dot = name.lastIndexOf('.')
+    const symbols = outline(f.text)
     out.push({
       path,
       dir: slash < 0 ? '' : path.slice(0, slash),
@@ -86,6 +88,7 @@ export function scan(files: VirtualFile[], opts: ScanOptions = {}): FileRecord[]
       bytes,
       excerpt: excerptOf(f.text),
       imports: extractImports(path, f.text),
+      ...(symbols.length ? { symbols } : {}),
     })
   }
   out.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import type { AtlasNode } from '@codeville/core'
-import { bezier, depthKey, halfWidth, hitNode, pickColor, pickIndex, pointInConvexQuad, project, shade, slabFaces, sortByDepth } from './iso.js'
+import type { AtlasLink, AtlasNode } from '@codeville/core'
+import { arc, bezier, depthKey, halfWidth, hitLink, hitNode, pickColor, pickIndex, pointInConvexQuad, project, shade, slabFaces, sortByDepth } from './iso.js'
 
 const node = (over: Partial<AtlasNode> = {}): AtlasNode => ({
   id: 'x', label: 'x', path: 'x', kind: 'file', area: 'lib', role: 'service logic',
@@ -130,5 +130,55 @@ describe('bezier', () => {
     expect(bezier(p0, c, p1, 0)).toEqual(p0)
     expect(bezier(p0, c, p1, 1)).toEqual(p1)
     expect(bezier(p0, c, p1, 0.5).sy).toBeLessThan(0)
+  })
+})
+
+function link(from: string, to: string, type: AtlasLink['type'] = 'import'): AtlasLink {
+  return { from, to, type, samples: [] }
+}
+
+describe('hitLink', () => {
+  const a = node({ id: 'a', path: 'a.ts', x: 0, y: 0, h: 1 })
+  const b = node({ id: 'b', path: 'b.ts', x: 6, y: 0, h: 1 })
+  const c = node({ id: 'c', path: 'c.ts', x: 3, y: -3, h: 1 })
+  const d = node({ id: 'd', path: 'd.ts', x: 3, y: 3, h: 1 })
+  const nodesById = new Map([
+    [a.id, a],
+    [b.id, b],
+    [c.id, c],
+    [d.id, d],
+  ])
+  const ab = link('a', 'b')
+  const cd = link('c', 'd')
+
+  it('hits a point on the arc near t=0.5', () => {
+    const { p0, c: ctrl, p1 } = arc(a, b)
+    const mid = bezier(p0, ctrl, p1, 0.5)
+    expect(hitLink([ab], nodesById, mid, 1)).toEqual(ab)
+  })
+
+  it('misses a point far from every arc', () => {
+    expect(hitLink([ab], nodesById, { sx: 10_000, sy: 10_000 }, 1)).toBeNull()
+  })
+
+  it('picks the nearer of two crossing arcs', () => {
+    const abCurve = arc(a, b)
+    const cdCurve = arc(c, d)
+    const onAb = bezier(abCurve.p0, abCurve.c, abCurve.p1, 0.4)
+    const onCd = bezier(cdCurve.p0, cdCurve.c, cdCurve.p1, 0.4)
+    expect(hitLink([ab, cd], nodesById, onAb, 1)).toEqual(ab)
+    expect(hitLink([cd, ab], nodesById, onAb, 1)).toEqual(ab)
+    expect(hitLink([ab, cd], nodesById, onCd, 1)).toEqual(cd)
+    expect(hitLink([cd, ab], nodesById, onCd, 1)).toEqual(cd)
+  })
+
+  it('prefers import/external over containment when both are in range', () => {
+    const contain = link('a', 'b', 'containment')
+    const p0 = project(a.x, a.y, a.h)
+    const p1 = project(b.x, b.y, b.h)
+    const onLine = { sx: (p0.sx + p1.sx) / 2, sy: (p0.sy + p1.sy) / 2 }
+    // Tiny zoom → huge threshold, so the lifted import arc is also in range.
+    expect(hitLink([contain, ab], nodesById, onLine, 0.01)?.type).toBe('import')
+    expect(hitLink([ab, contain], nodesById, onLine, 0.01)?.type).toBe('import')
   })
 })

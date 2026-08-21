@@ -114,6 +114,7 @@ export function buildGraph(files: FileRecord[], resolver: Resolver, opts: BuildO
       excerpt: f.excerpt,
       in: 0,
       out: 0,
+      ...(f.symbols?.length ? { symbols: f.symbols } : {}),
     })
   }
 

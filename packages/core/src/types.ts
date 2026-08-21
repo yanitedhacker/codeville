@@ -31,6 +31,8 @@ export interface AtlasNode {
   out: number
   /** Count of rolled-up children when kind === 'dir'. */
   items?: number
+  /** Outline names, capped at 60. Files only; omitted when empty. */
+  symbols?: string[]
   /** Only ever written by an AI explainer adapter. Never by heuristics. */
   summary?: string
 }
@@ -69,6 +71,8 @@ export interface FileRecord {
   bytes: number
   excerpt: string[]
   imports: ImportRef[]
+  /** Outline names, capped at 60. Omitted when the file declares none. */
+  symbols?: string[]
 }
 
 export interface ImportRef {

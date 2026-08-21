@@ -1,4 +1,4 @@
-import type { AtlasNode } from '@codeville/core'
+import type { AtlasLink, AtlasNode } from '@codeville/core'
 
 /** 30 degrees: the projection angle measured off the reference frames. */
 export const ISO_COS = Math.cos(Math.PI / 6)
@@ -69,7 +69,7 @@ export function slabFaces(node: Pick<AtlasNode, 'x' | 'y' | 'h' | 'kind' | 'item
  * Import arcs lift out of the plane so overlapping edges stay tellable apart;
  * lift grows with span, as in the reference frames.
  */
-export function arc(a: AtlasNode, b: AtlasNode): { p0: Point; p1: Point; c: Point } {
+export function arc(a: Pick<AtlasNode, 'x' | 'y' | 'h'>, b: Pick<AtlasNode, 'x' | 'y' | 'h'>): { p0: Point; p1: Point; c: Point } {
   const p0 = project(a.x, a.y, a.h)
   const p1 = project(b.x, b.y, b.h)
   const span = Math.hypot(a.x - b.x, a.y - b.y)
@@ -116,6 +116,68 @@ export function pointInConvexQuad(p: Point, quad: readonly Point[]): boolean {
     else if (s !== sign) return false
   }
   return true
+}
+
+/**
+ * Nearest arc under threshold, sampled at t = 0, 1/15, …, 1.
+ * Import/external win over containment when both are close; then nearest.
+ * Containment is hit on the drawn segment, not the lifted import bezier.
+ */
+export function hitLink<T extends Pick<AtlasLink, 'from' | 'to' | 'type'>>(
+  links: readonly T[],
+  nodesById: ReadonlyMap<string, Pick<AtlasNode, 'x' | 'y' | 'h'>>,
+  p: Point,
+  zoom: number,
+): T | null {
+  const z = zoom > 0 ? zoom : 1
+  const threshold = Math.max(4, 6 / z)
+  let bestFlow: { link: T; dist: number } | null = null
+  let bestContain: { link: T; dist: number } | null = null
+
+  for (const link of links) {
+    const a = nodesById.get(link.from)
+    const b = nodesById.get(link.to)
+    if (!a || !b) continue
+    const dist = minLinkDist(a, b, link.type, p)
+    if (dist > threshold) continue
+    if (link.type === 'containment') {
+      if (!bestContain || dist < bestContain.dist) bestContain = { link, dist }
+    } else if (!bestFlow || dist < bestFlow.dist) {
+      bestFlow = { link, dist }
+    }
+  }
+
+  return bestFlow?.link ?? bestContain?.link ?? null
+}
+
+function minLinkDist(
+  a: Pick<AtlasNode, 'x' | 'y' | 'h'>,
+  b: Pick<AtlasNode, 'x' | 'y' | 'h'>,
+  type: AtlasLink['type'],
+  p: Point,
+): number {
+  let min = Infinity
+  for (let i = 0; i <= 15; i++) {
+    const q = sampleLink(a, b, type, i / 15)
+    const d = Math.hypot(q.sx - p.sx, q.sy - p.sy)
+    if (d < min) min = d
+  }
+  return min
+}
+
+function sampleLink(
+  a: Pick<AtlasNode, 'x' | 'y' | 'h'>,
+  b: Pick<AtlasNode, 'x' | 'y' | 'h'>,
+  type: AtlasLink['type'],
+  t: number,
+): Point {
+  if (type === 'containment') {
+    const p0 = project(a.x, a.y, a.h)
+    const p1 = project(b.x, b.y, b.h)
+    return { sx: p0.sx + (p1.sx - p0.sx) * t, sy: p0.sy + (p1.sy - p0.sy) * t }
+  }
+  const { p0, c, p1 } = arc(a, b)
+  return bezier(p0, c, p1, t)
 }
 
 /** Back-to-front walk: last in the painter's list (nearest) wins. */

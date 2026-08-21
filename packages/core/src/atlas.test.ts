@@ -109,6 +109,13 @@ describe('buildAtlas', () => {
     expect(a).toBe(b)
   })
 
+  it('records outline symbols on file nodes, capped, and omits them on packages', () => {
+    const session = atlas.nodes.find((n) => n.id === 'lib/session.ts')
+    expect(session?.symbols).toContain('getSession')
+    expect(session?.symbols?.length).toBeLessThanOrEqual(60)
+    expect(atlas.nodes.filter((n) => n.kind === 'external').every((n) => n.symbols === undefined)).toBe(true)
+  })
+
   it('is order-independent: shuffled input yields the same atlas', () => {
     const shuffled = [...REPO].reverse()
     expect(JSON.stringify(buildAtlas(shuffled, { now: NOW }))).toBe(JSON.stringify(buildAtlas(REPO, { now: NOW })))

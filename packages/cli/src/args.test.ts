@@ -10,6 +10,44 @@ import { parseArgs } from './index.js'
 const REPO_ROOT = fileURLToPath(new URL('../../..', import.meta.url))
 
 describe('parseArgs', () => {
+  it('parses ask without defaulting an output file', () => {
+    const args = parseArgs([
+      'ask',
+      '/tmp/demo-repo',
+      '--atlas',
+      '/tmp/atlas.json',
+      '--explain',
+      'claude',
+      '--node',
+      'lib/session.ts',
+      '--fn',
+      'getSession',
+      '--question',
+      'what does getSession return?',
+    ])
+    expect(args).toMatchObject({
+      command: 'ask',
+      explain: 'claude',
+      node: 'lib/session.ts',
+      fn: 'getSession',
+      question: 'what does getSession return?',
+    })
+    expect(args && 'out' in args ? args.out : undefined).toBeUndefined()
+    expect(args && args.command === 'ask' ? args.atlas?.endsWith('atlas.json') : false).toBe(true)
+  })
+
+  it('refuses ask when --node, --fn, or --question is missing', () => {
+    expect(() => parseArgs(['ask', '/tmp/demo-repo', '--fn', 'getSession', '--question', 'why'])).toThrow(
+      /ask needs --node, --fn, and --question/,
+    )
+    expect(() => parseArgs(['ask', '/tmp/demo-repo', '--node', 'a.ts', '--question', 'why'])).toThrow(
+      /ask needs --node, --fn, and --question/,
+    )
+    expect(() => parseArgs(['ask', '/tmp/demo-repo', '--node', 'a.ts', '--fn', 'f'])).toThrow(
+      /ask needs --node, --fn, and --question/,
+    )
+  })
+
   it('rejects a non-numeric --max-nodes', () => {
     expect(() => parseArgs(['.', '--max-nodes', 'abc'])).toThrow(/--max-nodes needs a positive number/)
   })
@@ -20,7 +58,8 @@ describe('parseArgs', () => {
 
   it('keeps case in the default output filename', () => {
     const args = parseArgs(['/tmp/MixedCase'])
-    expect(args?.out.endsWith('MixedCase-atlas.html')).toBe(true)
+    expect(args?.command).toBe('generate')
+    expect(args && args.command === 'generate' && args.out.endsWith('MixedCase-atlas.html')).toBe(true)
   })
 })
 
