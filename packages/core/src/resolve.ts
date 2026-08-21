@@ -11,6 +11,14 @@ export interface Resolver {
 const TRY_EXT = ['', '.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.mts', '.cts', '.vue', '.svelte', '.astro', '.py', '.go', '.rs']
 const TRY_INDEX = ['/index.ts', '/index.tsx', '/index.js', '/index.jsx', '/index.mjs', '/__init__.py', '/mod.rs']
 
+/** TypeScript ESM writes `.js` in the specifier while the file on disk is `.ts`. */
+const JS_TO_TS: Record<string, readonly string[]> = {
+  '.js': ['.ts', '.tsx'],
+  '.jsx': ['.tsx'],
+  '.mjs': ['.mts'],
+  '.cjs': ['.cts'],
+}
+
 export interface ResolverOptions {
   /** tsconfig compilerOptions.paths, already flattened. `@/*` -> `./*` */
   aliases?: Record<string, string[]>
@@ -29,6 +37,15 @@ export function createResolver(files: FileRecord[], opts: ResolverOptions = {}):
     if (!p) return null
     for (const ext of TRY_EXT) if (index.has(p + ext)) return p + ext
     for (const idx of TRY_INDEX) if (index.has(p + idx)) return p + idx
+    const slash = p.lastIndexOf('/')
+    const base = slash < 0 ? p : p.slice(slash + 1)
+    const dot = base.lastIndexOf('.')
+    if (dot <= 0) return null
+    const ext = base.slice(dot)
+    const alts = JS_TO_TS[ext]
+    if (!alts) return null
+    const stem = p.slice(0, p.length - ext.length)
+    for (const alt of alts) if (index.has(stem + alt)) return stem + alt
     return null
   }
 

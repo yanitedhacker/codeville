@@ -146,4 +146,40 @@ describe('resolve', () => {
     const star = createResolver(files('src/x.ts'), { aliases: { '*': ['src/*'] }, baseUrl: '.' })
     expect(star.externalName('react')).toBe('react')
   })
+
+  it('rewrites a .js specifier to the TypeScript file on disk', () => {
+    const r = createResolver(files('packages/core/src/types.ts', 'packages/core/src/resolve.ts'))
+    expect(r.resolve('./types.js', 'packages/core/src')).toBe('packages/core/src/types.ts')
+  })
+
+  it('rewrites a .js specifier to a .tsx module', () => {
+    const r = createResolver(files('apps/web/src/App.tsx', 'apps/web/src/main.tsx'))
+    expect(r.resolve('./App.js', 'apps/web/src')).toBe('apps/web/src/App.tsx')
+  })
+
+  it('rewrites a directory index imported with .js', () => {
+    const r = createResolver(files('apps/web/src/ingest/index.ts', 'apps/web/src/App.tsx'))
+    expect(r.resolve('./ingest/index.js', 'apps/web/src')).toBe('apps/web/src/ingest/index.ts')
+  })
+
+  it('rewrites .mjs to .mts and .cjs to .cts', () => {
+    const r = createResolver(files('src/worker.mts', 'src/legacy.cts'))
+    expect(r.resolve('./worker.mjs', 'src')).toBe('src/worker.mts')
+    expect(r.resolve('./legacy.cjs', 'src')).toBe('src/legacy.cts')
+  })
+
+  it('prefers a real .js file over a sibling .ts of the same stem', () => {
+    const r = createResolver(files('src/utils.js', 'src/utils.ts'))
+    expect(r.resolve('./utils.js', 'src')).toBe('src/utils.js')
+  })
+
+  it('does not treat a dotted directory name as a file extension', () => {
+    const r = createResolver(files('src/config.d/index.ts'))
+    expect(r.resolve('./config.d/index', 'src')).toBe('src/config.d/index.ts')
+  })
+
+  it('returns null when a rewritten specifier still has no file', () => {
+    const r = createResolver(files('src/a.ts'))
+    expect(r.resolve('./missing.js', 'src')).toBeNull()
+  })
 })
