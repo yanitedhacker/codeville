@@ -1,5 +1,5 @@
 import type { Atlas, AtlasLink, AtlasNode } from '@codeville/core'
-import { UNIT, arc, bezier, halfWidth, pickColor, pickIndex, project, shade, slabFaces, sortByDepth, type Point } from './iso.js'
+import { UNIT, arc, bezier, halfWidth, hitNode, project, shade, slabFaces, sortByDepth, type Point } from './iso.js'
 
 export interface ViewState {
   selected: string | null
@@ -43,7 +43,6 @@ export class AtlasRenderer {
   private readonly ctx: CanvasRenderingContext2D
   private readonly bg = document.createElement('canvas')
   private readonly fg = document.createElement('canvas')
-  private readonly pick = document.createElement('canvas')
   private readonly cb: RendererCallbacks
 
   private atlas: Atlas
@@ -110,7 +109,7 @@ export class AtlasRenderer {
     this.dpr = Math.min(window.devicePixelRatio || 1, 2)
     this.width = width
     this.height = height
-    for (const c of [this.canvas, this.bg, this.fg, this.pick]) {
+    for (const c of [this.canvas, this.bg, this.fg]) {
       c.width = Math.max(1, Math.round(width * this.dpr))
       c.height = Math.max(1, Math.round(height * this.dpr))
     }
@@ -146,12 +145,10 @@ export class AtlasRenderer {
   /** Debug affordance: reachable as `document.querySelector('canvas').__codeville`. */
   probe(clientX: number, clientY: number): unknown {
     const rect = this.canvas.getBoundingClientRect()
-    const x = Math.round((clientX - rect.left) * this.dpr)
-    const y = Math.round((clientY - rect.top) * this.dpr)
-    const ctx = this.pick.getContext('2d', { willReadFrequently: true })!
-    const px = Array.from(ctx.getImageData(x, y, 1, 1).data)
+    const x = clientX - rect.left
+    const y = clientY - rect.top
     return {
-      x, y, px,
+      x, y,
       hit: this.nodeAt(clientX, clientY)?.path ?? null,
       nodes: this.ordered.length,
       zoom: this.zoom,
@@ -266,7 +263,6 @@ export class AtlasRenderer {
   private renderStaticLayers(): void {
     this.renderBackground()
     this.renderForeground()
-    this.renderPickBuffer()
   }
 
   private renderBackground(): void {
@@ -484,31 +480,19 @@ export class AtlasRenderer {
     ctx.globalAlpha = 1
   }
 
-  private renderPickBuffer(): void {
-    const ctx = this.pick.getContext('2d', { willReadFrequently: true })!
-    ctx.setTransform(1, 0, 0, 1, 0, 0)
-    ctx.clearRect(0, 0, this.pick.width, this.pick.height)
-    this.applyTransform(ctx)
-    this.ordered.forEach((node, i) => {
-      const faces = slabFaces(node)
-      const color = pickColor(i)
-      fill(ctx, faces.right, color)
-      fill(ctx, faces.left, color)
-      fill(ctx, faces.top, color)
-    })
-  }
-
   private nodeAt(clientX: number, clientY: number): AtlasNode | null {
     if (this.layersDirty) this.draw()
     const rect = this.canvas.getBoundingClientRect()
-    const x = Math.round((clientX - rect.left) * this.dpr)
-    const y = Math.round((clientY - rect.top) * this.dpr)
-    if (x < 0 || y < 0 || x >= this.pick.width || y >= this.pick.height) return null
-    const ctx = this.pick.getContext('2d', { willReadFrequently: true })!
-    const [r, g, b, a] = ctx.getImageData(x, y, 1, 1).data as unknown as [number, number, number, number]
-    if (a === 0) return null
-    const idx = pickIndex(r, g, b)
-    return this.ordered[idx] ?? null
+    const cssX = clientX - rect.left
+    const cssY = clientY - rect.top
+    if (cssX < 0 || cssY < 0 || cssX > this.width || cssY > this.height) return null
+    const zoom = this.zoom || 1
+    // Inverse of applyTransform: DPR cancels between CSS pixels and the dpr scale.
+    const p = {
+      sx: (cssX - this.width / 2 - this.camX) / zoom,
+      sy: (cssY - this.height / 2 - this.camY) / zoom,
+    }
+    return hitNode(this.ordered, p)
   }
 
   // --- interaction --------------------------------------------------------

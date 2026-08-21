@@ -66,7 +66,12 @@ export const MAX_SOURCE_CHARS = 4000
  * it declares further down.
  */
 export function sourceDigest(text: string, maxChars = MAX_SOURCE_CHARS): string {
-  const head = text.length > maxChars ? `${text.slice(0, maxChars)}\n… (truncated)` : text
+  let cut = maxChars
+  if (text.length > maxChars) {
+    const last = text.charCodeAt(maxChars - 1)
+    if (last >= 0xd800 && last <= 0xdbff) cut = maxChars - 1
+  }
+  const head = text.length > maxChars ? `${text.slice(0, cut)}\n… (truncated)` : text
   if (text.length <= maxChars) return head
   const names = outline(text)
   return names.length ? `${head}\n\n/* also declares: ${names.join(', ')} */` : head

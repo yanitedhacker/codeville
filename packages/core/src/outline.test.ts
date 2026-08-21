@@ -50,4 +50,12 @@ describe('sourceDigest', () => {
     expect(digest).toContain('truncated')
     expect(digest).toContain('deepDown')
   })
+
+  it('does not cut a trailing high surrogate off a truncated digest', () => {
+    const text = `${'a'.repeat(3999)}😀`
+    const digest = sourceDigest(text, 4000)
+    expect(digest.startsWith('a'.repeat(3999))).toBe(true)
+    expect(digest).toContain('truncated')
+    expect([...digest.slice(0, 3999)]).toHaveLength(3999)
+  })
 })

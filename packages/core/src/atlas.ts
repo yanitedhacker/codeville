@@ -1,6 +1,7 @@
 import type { Atlas, BuildOptions, VirtualFile } from './types.js'
+import { parseJsonc } from './jsonc.js'
 import { scan, type ScanOptions } from './scan.js'
-import { createResolver, readTsconfigAliases } from './resolve.js'
+import { createResolver, readTsconfigAliases, type ResolverOptions } from './resolve.js'
 import { buildGraph } from './graph.js'
 import { layout } from './layout.js'
 
@@ -8,22 +9,23 @@ export interface BuildAtlasOptions extends BuildOptions, ScanOptions {}
 
 export function buildAtlas(files: VirtualFile[], opts: BuildAtlasOptions = {}): Atlas {
   // tsconfig and package.json are read before scan drops them as non-source.
-  const tsconfig = files.find((f) => /(^|\/)tsconfig(\.\w+)?\.json$/.test(f.path) && depth(f.path) <= 1)
+  const tsconfig = pickTsconfig(files)
   const pkg = files.find((f) => /(^|\/)package\.json$/.test(f.path) && depth(f.path) <= 1)
 
   const records = scan(files, { exclude: opts.exclude })
-  const resolver = createResolver(records, tsconfig ? readTsconfigAliases(tsconfig.text) : {})
+  const resolver = createResolver(records, tsconfig ? aliasesFromConfig(tsconfig, files) : {})
   const graph = buildGraph(records, resolver, opts)
   const positioned = layout(graph.nodes, graph.links, graph.areas, seedFrom(records.map((r) => r.path)))
 
   const name = opts.repoName ?? readPackageName(pkg?.text) ?? 'repository'
+  const shownPkgs = graph.nodes.filter((n) => n.kind === 'external').length
 
   return {
     repo: {
       name,
       ...(opts.ref ? { ref: opts.ref } : {}),
       generatedAt: (opts.now ?? (() => new Date().toISOString()))(),
-      note: buildNote(name, graph.denseAreas),
+      note: buildNote(name, graph.denseAreas, shownPkgs, graph.packages),
     },
     stats: {
       nodes: positioned.length,
@@ -38,14 +40,19 @@ export function buildAtlas(files: VirtualFile[], opts: BuildAtlasOptions = {}): 
   }
 }
 
-function buildNote(name: string, rolledAreas: string[]): string {
+function buildNote(name: string, rolledAreas: string[], shownPkgs = 0, totalPkgs = 0): string {
   const rolled = rolledAreas.length
     ? ` ${humanList(rolledAreas)} ${rolledAreas.length === 1 ? 'is' : 'are'} rolled into single blocks.`
     : ''
+  const pkgs =
+    totalPkgs > shownPkgs && shownPkgs >= 0
+      ? ` ${shownPkgs} of ${totalPkgs} packages shown.`
+      : ''
   return (
     `This is a focused source slice of ${name}, not the whole checkout. ` +
     `node_modules, build outputs, lockfiles, .env files, and nested worktrees are excluded.` +
     rolled +
+    pkgs +
     ` Dots are import packets.`
   )
 }
@@ -70,6 +77,45 @@ function readPackageName(text?: string): string | null {
 }
 
 const depth = (path: string): number => path.split('/').length - 1
+
+const basename = (path: string): string => path.slice(path.lastIndexOf('/') + 1)
+
+/** Prefer tsconfig.json, then jsconfig.json, then any other tsconfig*.json — never input order. */
+function pickTsconfig(files: VirtualFile[]): VirtualFile | undefined {
+  const candidates = files.filter((f) => depth(f.path) <= 1)
+  const named = (name: string): VirtualFile | undefined =>
+    candidates
+      .filter((f) => basename(f.path) === name)
+      .sort((a, b) => (a.path < b.path ? -1 : 1))[0]
+  return (
+    named('tsconfig.json') ??
+    named('jsconfig.json') ??
+    candidates
+      .filter((f) => /(^|\/)tsconfig(\.\w+)?\.json$/.test(f.path))
+      .sort((a, b) => (a.path < b.path ? -1 : 1))[0]
+  )
+}
+
+function aliasesFromConfig(chosen: VirtualFile, files: VirtualFile[]): ResolverOptions {
+  const child = readTsconfigAliases(chosen.text)
+  const parsed = parseJsonc<{ extends?: unknown }>(chosen.text)
+  const spec = typeof parsed?.extends === 'string' ? parsed.extends : null
+  if (!spec) return child
+  const parentPath = resolveExtends(chosen.path, spec)
+  const parent = files.find((f) => f.path === parentPath || f.path === `${parentPath}.json`)
+  if (!parent) return child
+  const base = readTsconfigAliases(parent.text)
+  return {
+    aliases: { ...(base.aliases ?? {}), ...(child.aliases ?? {}) },
+    baseUrl: child.baseUrl ?? base.baseUrl,
+  }
+}
+
+function resolveExtends(fromPath: string, spec: string): string {
+  const dir = fromPath.includes('/') ? fromPath.slice(0, fromPath.lastIndexOf('/')) : ''
+  const rel = spec.replace(/^\.\//, '')
+  return dir ? `${dir}/${rel}` : rel
+}
 
 /** Content-derived seed: the same file set always lays out identically. */
 function seedFrom(paths: string[]): number {

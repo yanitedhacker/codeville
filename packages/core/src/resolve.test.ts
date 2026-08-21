@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createResolver, readTsconfigAliases } from './resolve.js'
-import { stripJsonc } from './jsonc.js'
+import { parseJsonc, stripJsonc } from './jsonc.js'
 import type { FileRecord } from './types.js'
 
 const files = (...paths: string[]): FileRecord[] =>
@@ -51,6 +51,14 @@ describe('readTsconfigAliases', () => {
   it('returns empty options for unparseable input rather than throwing', () => {
     expect(readTsconfigAliases('{ not json')).toEqual({})
   })
+
+  it('strips a UTF-8 BOM before parsing', () => {
+    const bom = `\uFEFF${SHOPPIE_TSCONFIG}`
+    expect(readTsconfigAliases(bom)).toEqual(readTsconfigAliases(SHOPPIE_TSCONFIG))
+    expect(parseJsonc('\uFEFF{"compilerOptions":{"baseUrl":"."}}')).toEqual({
+      compilerOptions: { baseUrl: '.' },
+    })
+  })
 })
 
 describe('resolve', () => {
@@ -89,5 +97,42 @@ describe('resolve', () => {
     const py = createResolver(files('app/logger.py', 'app/__init__.py'))
     expect(py.resolve('app.logger', 'app')).toBe('app/logger.py')
     expect(py.resolve('app', 'scripts')).toBe('app/__init__.py')
+  })
+
+  it('resolves python relative imports via leading dots', () => {
+    const py = createResolver(files('pkg/mod.py', 'pkg/sub/__init__.py', 'pkg/sub.py', 'app/main.py'))
+    expect(py.resolve('.mod', 'pkg')).toBe('pkg/mod.py')
+    expect(py.resolve('..pkg.sub', 'app')).toMatch(/^pkg\/sub(\.py|\/__init__\.py)$/)
+    expect(py.externalName('.mod')).toBeNull()
+    expect(py.externalName('..pkg.sub')).toBeNull()
+  })
+
+  it('treats an exact alias as an exact match, not a prefix', () => {
+    const r = createResolver(files('src/index.ts', 'shims/react.ts'), {
+      aliases: { react: ['./shims/react.ts'] },
+      baseUrl: '.',
+    })
+    expect(r.resolve('react', 'src')).toBe('shims/react.ts')
+    expect(r.externalName('react')).toBeNull()
+    expect(r.externalName('react-dom')).toBe('react-dom')
+    expect(r.externalName('react-router-dom')).toBe('react-router-dom')
+    expect(r.externalName('reactflow')).toBe('reactflow')
+    expect(r.externalName('lodash')).toBe('lodash')
+  })
+
+  it('does not let a bare "@" alias swallow scoped packages', () => {
+    const at = createResolver(files('src/a.ts'), {
+      aliases: { '@': ['./src'], '@/*': ['./src/*'] },
+      baseUrl: '.',
+    })
+    expect(at.resolve('@/a', 'src')).toBe('src/a.ts')
+    expect(at.externalName('@tanstack/react-query')).toBe('@tanstack/react-query')
+    expect(at.externalName('@radix-ui/react-dialog')).toBe('@radix-ui/react-dialog')
+    expect(at.externalName('react')).toBe('react')
+  })
+
+  it('does not let a "*" path pattern drop every package', () => {
+    const star = createResolver(files('src/x.ts'), { aliases: { '*': ['src/*'] }, baseUrl: '.' })
+    expect(star.externalName('react')).toBe('react')
   })
 })

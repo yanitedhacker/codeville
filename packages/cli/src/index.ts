@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
 import { homedir } from 'node:os'
 import { dirname, resolve } from 'node:path'
@@ -29,7 +29,8 @@ const USAGE = `codeville <path-to-repo> [options]
   -o, --out <file>       output path (.html or .json)   default: <name>-atlas.html
   -e, --explain <spec>   heuristic | codex | claude | openai | anthropic
                          | cli:<command> | module:<path>   default: heuristic
-      --max-nodes <n>    visible node budget before rollup   default: 220
+      --max-nodes <n>    visible node budget (includes packages)   default: 220
+                         a file plus its area slab may exceed 1
       --exclude <paths>  comma-separated path prefixes to drop
       --no-cache         ignore the explanation cache in ~/.cache/codeville
   -j, --concurrency <n>  parallel explainer calls   default: 4 (cli) / 6 (api)
@@ -43,14 +44,23 @@ async function main(argv: string[]): Promise<void> {
   }
 
   const t0 = Date.now()
-  const { files, skipped } = await readRepo(args.root)
-  if (files.length === 0) throw new Error(`No source files found under ${args.root}`)
-  log(`read ${files.length} files${skipped ? ` (${skipped} over the size cap)` : ''}`)
+  const { files, skipped, truncated } = await readRepo(args.root)
+  if (files.length === 0) {
+    const why: string[] = []
+    if (skipped) why.push(`${skipped} over the 512KB cap`)
+    if (truncated) why.push('truncated')
+    throw new Error(`No source files found under ${args.root}${why.length ? ` (${why.join(', ')})` : ''}`)
+  }
+  const extras: string[] = []
+  if (skipped) extras.push(`${skipped} over the size cap`)
+  if (truncated) extras.push('truncated')
+  log(`read ${files.length} files${extras.length ? ` (${extras.join(', ')})` : ''}`)
 
   let atlas = buildAtlas(files, {
     exclude: args.exclude,
     ...(args.maxNodes !== undefined ? { maxNodes: args.maxNodes } : {}),
   })
+  if (truncated) atlas.repo.note += ' Input hit the file cap, so this slice is partial.'
   log(`atlas: ${atlas.stats.nodes} nodes · ${atlas.stats.links} links · ${atlas.stats.packages} packages`)
 
   atlas = await explain(atlas, args, files)
@@ -62,7 +72,9 @@ async function main(argv: string[]): Promise<void> {
       readFile(resolve(BUNDLE_DIR, 'codeville.js'), 'utf8').catch(() => {
         throw new Error('Export bundle missing. Run: pnpm -F @codeville/atlas-ui build')
       }),
-      readFile(resolve(BUNDLE_DIR, 'codeville.css'), 'utf8').catch(() => ''),
+      readFile(resolve(BUNDLE_DIR, 'codeville.css'), 'utf8').catch(() => {
+        throw new Error('Export bundle missing. Run: pnpm -F @codeville/atlas-ui build')
+      }),
     ])
     await write(args.out, renderStandaloneHtml(atlas, js, css))
   }
@@ -104,10 +116,15 @@ async function explain(atlas: Atlas, args: Args, files: VirtualFile[]): Promise<
 
   const reused = requests.length - pending.length
   if (pending.length) {
-    // Report hits for THIS explainer, not the whole cache file, which also holds
-    // entries keyed to other adapters and older prompts.
     log(`explaining ${pending.length} nodes via ${explainer.id}${reused ? ` (${reused} reused)` : ''}`)
-    const fresh = await explainer.explain(pending)
+    let fresh = new Map<string, Explanation>()
+    try {
+      fresh = await explainer.explain(pending)
+      if (fresh.size === 0) log(`${explainer.id} failed, using heuristic prose`)
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err)
+      log(`${detail}, using heuristic prose`)
+    }
     if (process.stderr.isTTY) process.stderr.write('\n')
     for (const [id, value] of fresh) cache.set(keyOf(id), value)
   }
@@ -128,8 +145,14 @@ async function explain(atlas: Atlas, args: Args, files: VirtualFile[]): Promise<
   }
 
   if (!args.noCache && explainer.id !== 'heuristic') {
-    await mkdir(dirname(cachePath), { recursive: true })
-    await writeFile(cachePath, JSON.stringify(Object.fromEntries(cache), null, 2))
+    try {
+      await mkdir(dirname(cachePath), { recursive: true })
+      const tmp = `${cachePath}.tmp`
+      await writeFile(tmp, JSON.stringify(Object.fromEntries(cache), null, 2))
+      await rename(tmp, cachePath)
+    } catch (err) {
+      log(`cache write failed (${err instanceof Error ? err.message : String(err)})`)
+    }
   }
 
   return applyExplanations(atlas, resolved)
@@ -169,7 +192,11 @@ function parseArgs(argv: string[]): Args | null {
     if (arg === '-h' || arg === '--help') return null
     else if (arg === '-o' || arg === '--out') out = next()
     else if (arg === '-e' || arg === '--explain') explainSpec = next()
-    else if (arg === '--max-nodes') maxNodes = Number(next())
+    else if (arg === '--max-nodes') {
+      const n = Number(next())
+      if (!Number.isFinite(n) || n < 1) throw new Error('--max-nodes needs a positive number')
+      maxNodes = n
+    }
     else if (arg === '--exclude') exclude = next().split(',').map((s) => s.trim()).filter(Boolean)
     else if (arg === '--no-cache') noCache = true
     else if (arg === '-j' || arg === '--concurrency') concurrency = Number(next())
@@ -181,13 +208,17 @@ function parseArgs(argv: string[]): Args | null {
   const abs = resolve(process.cwd(), root)
   return {
     root: abs,
-    out: resolve(process.cwd(), out ?? `${abs.split('/').pop() ?? 'repo'}-atlas.html`.toLowerCase()),
+    out: resolve(process.cwd(), out ?? `${slugName(abs.split('/').pop() ?? 'repo')}-atlas.html`),
     explain: explainSpec,
     ...(maxNodes !== undefined ? { maxNodes } : {}),
     exclude,
     noCache,
     ...(concurrency !== undefined && Number.isFinite(concurrency) ? { concurrency } : {}),
   }
+}
+
+function slugName(name: string): string {
+  return name.replace(/[^\w.-]+/g, '-').replace(/^-+|-+$/g, '') || 'repo'
 }
 
 async function write(path: string, body: string): Promise<void> {
@@ -209,7 +240,13 @@ function progress(done: number, total: number, failed: number): void {
   }
 }
 
-main(process.argv.slice(2)).catch((err: unknown) => {
-  process.stderr.write(`codeville: ${err instanceof Error ? err.message : String(err)}\n`)
-  process.exit(1)
-})
+export { parseArgs, main }
+
+const thisFile = fileURLToPath(import.meta.url)
+const invokedDirectly = process.argv[1] !== undefined && resolve(process.argv[1]) === thisFile
+if (invokedDirectly) {
+  main(process.argv.slice(2)).catch((err: unknown) => {
+    process.stderr.write(`codeville: ${err instanceof Error ? err.message : String(err)}\n`)
+    process.exit(1)
+  })
+}

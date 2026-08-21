@@ -38,17 +38,17 @@ export interface AdapterOptions {
   concurrency?: number
   /** Called after each node resolves, so a long run is not a silent wait. */
   onProgress?: (done: number, total: number, failed: number) => void
+  /** Kill a hung CLI child after this many ms. SIGTERM, then SIGKILL one second later. */
+  timeoutMs?: number
 }
 
 export function cliExplainer(command: string, opts: AdapterOptions = {}): Explainer {
   const concurrency = opts.concurrency ?? 4
+  const timeoutMs = opts.timeoutMs ?? 120_000
   return {
     id: `cli:${command}`,
     fingerprint: PROMPT_VERSION,
     async explain(batch) {
-      const { execFile } = await import('node:child_process')
-      const { promisify } = await import('node:util')
-      const run = promisify(execFile)
       const [bin, ...preArgs] = command.split(/\s+/) as [string, ...string[]]
 
       const out = new Map<string, Explanation>()
@@ -56,10 +56,7 @@ export function cliExplainer(command: string, opts: AdapterOptions = {}): Explai
       let failed = 0
       await pool(batch, concurrency, async (node) => {
         try {
-          const { stdout } = await run(bin, [...preArgs, `${SYSTEM}\n\n${prompt(node)}`], {
-            timeout: 120_000,
-            maxBuffer: 4 * 1024 * 1024,
-          })
+          const stdout = await runCli(bin, [...preArgs, `${SYSTEM}\n\n${prompt(node)}`], timeoutMs)
           const summary = clean(stdout)
           if (summary) out.set(node.id, { summary })
           else failed++
@@ -74,6 +71,43 @@ export function cliExplainer(command: string, opts: AdapterOptions = {}): Explai
   }
 }
 
+async function runCli(bin: string, args: string[], timeoutMs: number): Promise<string> {
+  const { spawn } = await import('node:child_process')
+  return new Promise((resolve, reject) => {
+    const child = spawn(bin, args, { stdio: ['ignore', 'pipe', 'ignore'] })
+    let stdout = ''
+    child.stdout?.on('data', (buf: Buffer) => {
+      stdout += buf.toString()
+      if (stdout.length > 4 * 1024 * 1024) {
+        stdout = stdout.slice(0, 4 * 1024 * 1024)
+        child.kill('SIGKILL')
+      }
+    })
+    let timedOut = false
+    let settled = false
+    let killTimer: ReturnType<typeof setTimeout> | undefined
+    const timer = setTimeout(() => {
+      timedOut = true
+      child.kill('SIGTERM')
+      killTimer = setTimeout(() => child.kill('SIGKILL'), 1000)
+    }, timeoutMs)
+    const done = (err?: Error, value?: string) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      if (killTimer !== undefined) clearTimeout(killTimer)
+      if (err) reject(err)
+      else resolve(value ?? '')
+    }
+    child.on('error', (err) => done(err))
+    child.on('close', (code) => {
+      if (timedOut) done(new Error('timeout'))
+      else if (code === 0) done(undefined, stdout)
+      else done(new Error(`exit ${code ?? 'null'}`))
+    })
+  })
+}
+
 export type ApiVendor = 'openai' | 'anthropic'
 
 export function apiKeyExplainer(vendor: ApiVendor, model?: string, opts: AdapterOptions = {}): Explainer {
@@ -84,17 +118,24 @@ export function apiKeyExplainer(vendor: ApiVendor, model?: string, opts: Adapter
     fingerprint: PROMPT_VERSION,
     async explain(batch) {
       const key = process.env[envVar]
-      if (!key) throw new Error(`${envVar} is not set — codeville cannot use the ${vendor} adapter.`)
+      if (!key) return new Map<string, Explanation>()
 
       const out = new Map<string, Explanation>()
       let done = 0
       let failed = 0
+      let lastErr: string | null = null
       await pool(batch, concurrency, async (node) => {
-        const summary = await callVendor(vendor, key, model, prompt(node)).catch(() => null)
-        if (summary) out.set(node.id, { summary })
-        else failed++
+        try {
+          const summary = await callVendor(vendor, key, model, prompt(node))
+          if (summary) out.set(node.id, { summary })
+          else failed++
+        } catch (err) {
+          lastErr = err instanceof Error ? err.message : String(err)
+          failed++
+        }
         opts.onProgress?.(++done, batch.length, failed)
       })
+      if (batch.length > 0 && out.size === 0 && lastErr) throw new Error(lastErr)
       return out
     },
   }

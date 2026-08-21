@@ -11,6 +11,8 @@ const MAX_FILES = 4000
 const MAX_TOTAL_BYTES = 12 * 1024 * 1024
 const MAX_FILE_BYTES = 512 * 1024
 const MAX_ARCHIVE_BYTES = 90 * 1024 * 1024
+/** Cap decompressed tar so a zip bomb cannot expand past this. 20MB of zeros must 413. */
+const MAX_GUNZIP_BYTES = 16 * 1024 * 1024
 
 const SOURCE_EXT = new Set([
   'ts', 'tsx', 'js', 'jsx', 'mjs', 'cjs', 'mts', 'cts',
@@ -30,15 +32,35 @@ export interface GithubResult {
   truncated: boolean
 }
 
+function isRepoSegment(s: string): boolean {
+  return s !== '.' && s !== '..' && /^[\w.-]+$/.test(s)
+}
+
+function isValidRef(ref: string): boolean {
+  return /^[\w./-]+$/.test(ref) && !ref.split('/').some((s) => s === '.' || s === '..' || s === '')
+}
+
 export function parseRepoInput(input: string): { owner: string; name: string; ref?: string } | null {
   const trimmed = input.trim().replace(/\.git$/, '')
   const withoutHost = trimmed.replace(/^(https?:\/\/)?(www\.)?github\.com\//, '')
   const parts = withoutHost.split('/').filter(Boolean)
   const [owner, name, kind, ...rest] = parts
   if (!owner || !name) return null
-  if (!/^[\w.-]+$/.test(owner) || !/^[\w.-]+$/.test(name)) return null
+  if (!isRepoSegment(owner) || !isRepoSegment(name)) return null
   const ref = (kind === 'tree' || kind === 'commit') && rest.length ? rest.join('/') : undefined
+  if (ref !== undefined) {
+    if (!isValidRef(ref)) return null
+  }
   return ref ? { owner, name, ref } : { owner, name }
+}
+
+export function codeloadUrl(owner: string, name: string, ref: string): URL {
+  const url = new URL(`https://codeload.github.com/${owner}/${name}/tar.gz/${ref}`)
+  const prefix = `/${owner}/${name}/tar.gz/`
+  if (url.hostname !== 'codeload.github.com' || !url.pathname.startsWith(prefix)) {
+    throw new HttpError(400, `Invalid GitHub ref "${ref}"`)
+  }
+  return url
 }
 
 export async function fetchRepo(input: string, refHint?: string): Promise<GithubResult> {
@@ -49,11 +71,16 @@ export async function fetchRepo(input: string, refHint?: string): Promise<Github
   let lastStatus = 404
 
   for (const ref of refs) {
-    const url = `https://codeload.github.com/${parsed.owner}/${parsed.name}/tar.gz/${ref}`
+    if (!isValidRef(ref)) throw new HttpError(400, `Invalid GitHub ref "${ref}"`)
+    const url = codeloadUrl(parsed.owner, parsed.name, ref)
     const res = await fetch(url, { headers: { 'user-agent': 'codeville' } })
     if (!res.ok) {
       lastStatus = res.status
       continue
+    }
+    const announced = Number(res.headers.get('content-length'))
+    if (Number.isFinite(announced) && announced > MAX_ARCHIVE_BYTES) {
+      throw new HttpError(413, `${parsed.owner}/${parsed.name} is larger than codeville reads (90MB archive cap).`)
     }
     const archive = Buffer.from(await res.arrayBuffer())
     if (archive.byteLength > MAX_ARCHIVE_BYTES) {
@@ -75,7 +102,7 @@ function extract(archive: Buffer, repo: string, ref: string): GithubResult {
   let total = 0
   let truncated = false
 
-  untar(gunzipSync(archive), (entry) => {
+  untar(gunzipArchive(archive), (entry) => {
     if (files.length >= MAX_FILES || total >= MAX_TOTAL_BYTES) {
       truncated = true
       return
@@ -95,6 +122,18 @@ function extract(archive: Buffer, repo: string, ref: string): GithubResult {
   })
 
   return { repo, ref, files, truncated }
+}
+
+export function gunzipArchive(archive: Buffer, maxOutputLength = MAX_GUNZIP_BYTES): Buffer {
+  try {
+    return gunzipSync(archive, { maxOutputLength })
+  } catch (err) {
+    const code = err && typeof err === 'object' && 'code' in err ? (err as { code?: string }).code : undefined
+    if (code === 'ERR_BUFFER_TOO_LARGE') {
+      throw new HttpError(413, 'Decompressed archive exceeds codeville\'s size cap.')
+    }
+    throw err
+  }
 }
 
 export class HttpError extends Error {

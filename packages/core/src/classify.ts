@@ -22,6 +22,10 @@ const RULES: { test: RegExp; role: string; contributes?: string }[] = [
   { test: /(^|\/)(routes|handlers|views|endpoints)\//, role: 'route surface', contributes: 'http surface' },
   { test: /(^|\/)(main|cmd)\.(go|rs)$/, role: 'entry point', contributes: 'process entry' },
 
+  // Tests — above layer folders so src/lib/db.test.ts is verification, not service logic.
+  { test: /^(tests?|spec|__tests__|e2e)\//, role: 'test', contributes: 'verification' },
+  { test: /\.(test|spec)\.[tj]sx?$/, role: 'test', contributes: 'verification' },
+
   // Layers
   { test: /^(src\/)?hooks?\//, role: 'react hook', contributes: 'client state' },
   { test: /^(src\/)?components?\//, role: 'ui component', contributes: 'interface' },
@@ -34,8 +38,6 @@ const RULES: { test: RegExp; role: string; contributes?: string }[] = [
 
   // Non-code-ish
   { test: /\.sql$/, role: 'schema migration', contributes: 'database' },
-  { test: /^(tests?|spec|__tests__|e2e)\//, role: 'test', contributes: 'verification' },
-  { test: /\.(test|spec)\.[tj]sx?$/, role: 'test', contributes: 'verification' },
   { test: /^(scripts?|bin|tools|ops)\//, role: 'ops script', contributes: 'tooling' },
   { test: /^(docs?|documentation)\//, role: 'document', contributes: 'reference' },
   { test: /^(migrations?|db|database)\//, role: 'schema migration', contributes: 'database' },

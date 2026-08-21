@@ -33,12 +33,15 @@ export function createResolver(files: FileRecord[], opts: ResolverOptions = {}):
 
   return {
     resolve(spec, fromDir) {
-      if (spec.startsWith('.')) return probe(join(fromDir, spec))
+      if (spec.startsWith('.')) {
+        const rel = spec.includes('/') ? spec : pythonRelative(spec)
+        return probe(join(fromDir, rel))
+      }
 
       for (const [pattern, targets] of aliases) {
+        if (!matchesAlias(spec, pattern)) continue
         const star = pattern.indexOf('*')
         if (star < 0) {
-          if (spec !== pattern) continue
           for (const t of targets) {
             const hit = probe(join(base, t))
             if (hit) return hit
@@ -47,7 +50,6 @@ export function createResolver(files: FileRecord[], opts: ResolverOptions = {}):
         }
         const head = pattern.slice(0, star)
         const tail = pattern.slice(star + 1)
-        if (!spec.startsWith(head) || !spec.endsWith(tail)) continue
         const rest = spec.slice(head.length, spec.length - tail.length)
         for (const t of targets) {
           const hit = probe(join(base, t.replace('*', rest)))
@@ -66,7 +68,7 @@ export function createResolver(files: FileRecord[], opts: ResolverOptions = {}):
 
     externalName(spec) {
       if (spec.startsWith('.') || spec.startsWith('/')) return null
-      if (aliases.some(([p]) => spec.startsWith(p.replace('*', '')))) return null
+      if (aliases.some(([p]) => matchesAlias(spec, p))) return null
       const clean = spec.replace(/^node:/, '')
       if (!clean) return null
       const parts = clean.split('/')
@@ -75,6 +77,26 @@ export function createResolver(files: FileRecord[], opts: ResolverOptions = {}):
       return name.split('.')[0] || null
     },
   }
+}
+
+/** Shared by resolve() and externalName() so a prefix alias cannot drop real packages. */
+export function matchesAlias(spec: string, pattern: string): boolean {
+  const star = pattern.indexOf('*')
+  if (star < 0) return spec === pattern
+  const head = pattern.slice(0, star)
+  const tail = pattern.slice(star + 1)
+  // A lone "*" has empty head and tail and would match every specifier. That is a
+  // path remapping, not a package prefix — treating it as a hit drops every npm package.
+  if (!head && !tail) return false
+  return spec.startsWith(head) && spec.endsWith(tail)
+}
+
+function pythonRelative(spec: string): string {
+  let n = 0
+  while (spec[n] === '.') n++
+  const rest = spec.slice(n).replace(/\./g, '/')
+  const ups = Math.max(0, n - 1)
+  return `${'../'.repeat(ups)}${rest}`
 }
 
 function join(dir: string, rel: string): string {

@@ -30,7 +30,8 @@ const AREA_COLORS = [
 
 export function buildGraph(files: FileRecord[], resolver: Resolver, opts: BuildOptions = {}): GraphResult {
   const rollupDepth = opts.rollupDepth ?? DEFAULT_ROLLUP_DEPTH
-  const maxNodes = opts.maxNodes ?? DEFAULT_MAX_NODES
+  const requested = opts.maxNodes ?? DEFAULT_MAX_NODES
+  const maxNodes = Number.isFinite(requested) && requested >= 1 ? requested : DEFAULT_MAX_NODES
 
   const roles = new Map<string, ReturnType<typeof classify>>()
   for (const f of files) roles.set(f.path, classify(f, f.excerpt.join('\n')))
@@ -53,10 +54,25 @@ export function buildGraph(files: FileRecord[], resolver: Resolver, opts: BuildO
     if (denseShare(list) >= DENSE_SHARE) dense.add(area)
   }
 
+  const externalHits = new Map<string, { count: number; samples: string[] }>()
+  for (const f of files) {
+    for (const imp of f.imports) {
+      if (resolver.resolve(imp.spec, f.dir)) continue
+      const pkg = resolver.externalName(imp.spec)
+      if (!pkg) continue
+      const hit = externalHits.get(pkg) ?? { count: 0, samples: [] }
+      hit.count++
+      if (hit.samples.length < 6 && !hit.samples.includes(imp.statement)) hit.samples.push(imp.statement)
+      externalHits.set(pkg, hit)
+    }
+  }
+  const reservedExternals = Math.min(externalHits.size, MAX_EXTERNALS)
+
   // assign every file to a visible node
   let depth = rollupDepth
   let groupOf = assignGroups(files, dense, depth)
-  const fits = (g: Map<string, string>): boolean => countVisible(files, g) + byArea.size <= maxNodes
+  const fits = (g: Map<string, string>): boolean =>
+    countVisible(files, g) + byArea.size + reservedExternals <= maxNodes
 
   // Node budget. Group deeper first — folding `src` to a single block to save
   // room, while a benchmarks folder stays expanded, destroys the thing you came
@@ -130,29 +146,21 @@ export function buildGraph(files: FileRecord[], resolver: Resolver, opts: BuildO
     if (sample && edge.samples.length < 6 && !edge.samples.includes(sample)) edge.samples.push(sample)
   }
 
-  const externalHits = new Map<string, { count: number; samples: string[] }>()
-
   for (const f of files) {
     const from = visibleOf(f.path)
     for (const imp of f.imports) {
       const target = resolver.resolve(imp.spec, f.dir)
       if (target && nodes.has(visibleOf(target))) {
         addEdge(from, visibleOf(target), 'import', imp.statement)
-        continue
       }
-      if (target) continue
-      const pkg = resolver.externalName(imp.spec)
-      if (!pkg) continue
-      const hit = externalHits.get(pkg) ?? { count: 0, samples: [] }
-      hit.count++
-      if (hit.samples.length < 6 && !hit.samples.includes(imp.statement)) hit.samples.push(imp.statement)
-      externalHits.set(pkg, hit)
     }
   }
 
+  const localCount = nodes.size
+  const externalCap = Math.min(MAX_EXTERNALS, externalHits.size, Math.max(0, maxNodes - localCount))
   const topExternals = [...externalHits.entries()]
     .sort((a, b) => b[1].count - a[1].count || (a[0] < b[0] ? -1 : 1))
-    .slice(0, MAX_EXTERNALS)
+    .slice(0, externalCap)
 
   for (const [pkg] of topExternals) {
     nodes.set(extId(pkg), {
@@ -225,7 +233,7 @@ export function buildGraph(files: FileRecord[], resolver: Resolver, opts: BuildO
     denseAreas: [...dense].filter((a) => byArea.has(a)).sort(),
     sourceFiles: files.length,
     lines: files.reduce((n, f) => n + f.lines, 0),
-    packages: topExternals.length,
+    packages: externalHits.size,
   }
 }
 

@@ -11,11 +11,12 @@ describe('typescript imports', () => {
       "import 'server-only'",
       "export { pool } from './db'",
       "export * from '@/lib/types'",
+      "export * as ns from './ns'",
       'const mod = await import("./heavy")',
       'const pg = require("pg")',
     ].join('\n')
     expect(specs('app/api/orders/route.ts', text)).toEqual([
-      'next/server', '@/lib/session', 'server-only', './db', '@/lib/types', './heavy', 'pg',
+      'next/server', '@/lib/session', 'server-only', './db', '@/lib/types', './ns', './heavy', 'pg',
     ])
   })
 
@@ -37,12 +38,25 @@ describe('typescript imports', () => {
     const text = 'const importantThing = 1\n// import { a } from "ghost"\nimport { real } from "pg"'
     expect(specs('x.ts', text)).toEqual(['pg'])
   })
+
+  it('reads two import clauses on one line', () => {
+    expect(specs('x.ts', "import a from './a'; import b from './b'")).toEqual(['./a', './b'])
+  })
+
+  it('does not treat a block-commented import as an edge', () => {
+    const text = "/*\n import dead from './dead'\n*/\nimport live from './live'\n"
+    expect(specs('x.ts', text)).toEqual(['./live'])
+  })
 })
 
 describe('python imports', () => {
   it('reads both statement forms', () => {
     const text = 'from collections import deque\nimport logging\nfrom .local import thing\n'
     expect(specs('app/logger.py', text)).toEqual(['collections', 'logging', '.local'])
+  })
+
+  it('keeps leading dots on relative specs', () => {
+    expect(specs('pkg/a.py', 'from .mod import thing\nfrom ..pkg.sub import x\n')).toEqual(['.mod', '..pkg.sub'])
   })
 })
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { AtlasNode } from '@codeville/core'
-import { bezier, depthKey, halfWidth, pickColor, pickIndex, project, shade, slabFaces, sortByDepth } from './iso.js'
+import { bezier, depthKey, halfWidth, hitNode, pickColor, pickIndex, pointInConvexQuad, project, shade, slabFaces, sortByDepth } from './iso.js'
 
 const node = (over: Partial<AtlasNode> = {}): AtlasNode => ({
   id: 'x', label: 'x', path: 'x', kind: 'file', area: 'lib', role: 'service logic',
@@ -71,6 +71,41 @@ describe('shade', () => {
     expect(shade('#000000', 0.5)).toBe('rgb(0,0,0)')
     expect(shade('#ffffff', 0.5)).toBe('rgb(128,128,128)')
     expect(shade('#ffffff', 5)).toBe('rgb(255,255,255)')
+  })
+})
+
+function centroid(pts: { sx: number; sy: number }[]): { sx: number; sy: number } {
+  const n = pts.length || 1
+  return {
+    sx: pts.reduce((s, p) => s + p.sx, 0) / n,
+    sy: pts.reduce((s, p) => s + p.sy, 0) / n,
+  }
+}
+
+describe('analytic hit testing', () => {
+  it('hits a point clearly inside the top quad of a node', () => {
+    const n = node({ id: 'a', x: 0, y: 0, h: 1 })
+    const p = centroid(slabFaces(n).top)
+    expect(pointInConvexQuad(p, slabFaces(n).top)).toBe(true)
+    expect(hitNode([n], p)?.id).toBe('a')
+  })
+
+  it('on a shared edge of overlapping quads, hits the front-most node', () => {
+    const far = node({ id: 'far', x: 1, y: 1, h: 1 })
+    const near = node({ id: 'near', x: 1, y: 1, h: 1 })
+    const ordered = sortByDepth([near, far])
+    const top = slabFaces(far).top
+    const onEdge = {
+      sx: (top[0]!.sx + top[1]!.sx) / 2,
+      sy: (top[0]!.sy + top[1]!.sy) / 2,
+    }
+    expect(pointInConvexQuad(onEdge, top)).toBe(true)
+    expect(hitNode(ordered, onEdge)?.id).toBe(ordered[ordered.length - 1]!.id)
+  })
+
+  it('misses a point far from every quad', () => {
+    const n = node({ id: 'a', x: 0, y: 0, h: 1 })
+    expect(hitNode([n], { sx: 10_000, sy: 10_000 })).toBeNull()
   })
 })
 

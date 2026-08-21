@@ -98,6 +98,45 @@ export function shade(hex: string, amount: number): string {
 
 const clamp255 = (v: number): number => Math.max(0, Math.min(255, Math.round(v)))
 
+/**
+ * Point-in-convex-quad via consistent edge winding. A point on an edge is inside,
+ * so overlapping slabs on a shared edge resolve by painter order, not by luck.
+ */
+export function pointInConvexQuad(p: Point, quad: readonly Point[]): boolean {
+  const n = quad.length
+  if (n < 3) return false
+  let sign = 0
+  for (let i = 0; i < n; i++) {
+    const a = quad[i]!
+    const b = quad[(i + 1) % n]!
+    const cross = (b.sx - a.sx) * (p.sy - a.sy) - (b.sy - a.sy) * (p.sx - a.sx)
+    if (cross === 0) continue
+    const s = cross > 0 ? 1 : -1
+    if (sign === 0) sign = s
+    else if (s !== sign) return false
+  }
+  return true
+}
+
+/** Back-to-front walk: last in the painter's list (nearest) wins. */
+export function hitNode<T extends Pick<AtlasNode, 'x' | 'y' | 'h' | 'kind' | 'items'>>(
+  ordered: readonly T[],
+  p: Point,
+): T | null {
+  for (let i = ordered.length - 1; i >= 0; i--) {
+    const node = ordered[i]!
+    const faces = slabFaces(node)
+    if (
+      pointInConvexQuad(p, faces.top) ||
+      pointInConvexQuad(p, faces.left) ||
+      pointInConvexQuad(p, faces.right)
+    ) {
+      return node
+    }
+  }
+  return null
+}
+
 /** Index <-> colour for the offscreen pick buffer. Index 0 is reserved for "nothing". */
 export function pickColor(index: number): string {
   const v = index + 1

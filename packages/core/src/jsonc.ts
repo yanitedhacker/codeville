@@ -5,6 +5,7 @@
  * `"include": ["**\/*.ts"]` into one giant "block comment" and eats the paths map.
  */
 export function stripJsonc(text: string): string {
+  if (text.charCodeAt(0) === 0xfeff) text = text.slice(1)
   let out = ''
   let i = 0
   const n = text.length

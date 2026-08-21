@@ -1,4 +1,4 @@
-import { readdir, readFile, stat } from 'node:fs/promises'
+import { readdir, readFile, realpath, stat } from 'node:fs/promises'
 import { join, relative, sep } from 'node:path'
 import type { VirtualFile } from '@codeville/core'
 import { MAX_FILE_BYTES, isSource } from '@codeville/core'
@@ -18,14 +18,26 @@ const KEEP_CONFIG = /^(tsconfig(\.\w+)?\.json|package\.json|jsconfig\.json)$/
 export interface ReadRepoResult {
   files: VirtualFile[]
   skipped: number
+  truncated: boolean
 }
 
 export async function readRepo(root: string, maxFiles = 8000): Promise<ReadRepoResult> {
   const files: VirtualFile[] = []
   let skipped = 0
+  let truncated = false
+  const rootReal = await realpath(root).catch(() => root)
+
+  const insideRoot = (real: string): boolean => real === rootReal || real.startsWith(rootReal + sep)
 
   const walk = async (dir: string, depth: number): Promise<void> => {
-    if (depth > 12 || files.length >= maxFiles) return
+    if (files.length >= maxFiles) {
+      truncated = true
+      return
+    }
+    if (depth > 12) {
+      truncated = true
+      return
+    }
     let entries
     try {
       entries = await readdir(dir, { withFileTypes: true })
@@ -35,8 +47,24 @@ export async function readRepo(root: string, maxFiles = 8000): Promise<ReadRepoR
     entries.sort((a, b) => (a.name < b.name ? -1 : 1))
 
     for (const entry of entries) {
-      if (files.length >= maxFiles) return
+      if (files.length >= maxFiles) {
+        truncated = true
+        return
+      }
       const full = join(dir, entry.name)
+      if (entry.isSymbolicLink()) {
+        const real = await realpath(full).catch(() => null)
+        if (!real || !insideRoot(real)) continue
+        const info = await stat(real).catch(() => null)
+        if (!info) continue
+        if (info.isDirectory()) {
+          if (PRUNE.has(entry.name)) continue
+          await walk(full, depth + 1)
+          continue
+        }
+        if (info.isFile()) await takeFile(full, entry.name, info.size)
+        continue
+      }
       if (entry.isDirectory()) {
         if (PRUNE.has(entry.name)) continue
         // A worktree checkout under .claude would double every node in the atlas.
@@ -48,18 +76,21 @@ export async function readRepo(root: string, maxFiles = 8000): Promise<ReadRepoR
         continue
       }
       if (!entry.isFile()) continue
-
-      const rel = relative(root, full).split(sep).join('/')
-      const isConfig = KEEP_CONFIG.test(entry.name) && rel.split('/').length <= 2
-      if (!isConfig && !isSource(rel)) continue
-
       const info = await stat(full).catch(() => null)
-      if (!info || info.size > MAX_FILE_BYTES) {
-        if (info) skipped++
-        continue
-      }
-      files.push({ path: rel, text: await readFile(full, 'utf8') })
+      if (!info) continue
+      await takeFile(full, entry.name, info.size)
     }
+  }
+
+  const takeFile = async (full: string, name: string, size: number): Promise<void> => {
+    const rel = relative(root, full).split(sep).join('/')
+    const isConfig = KEEP_CONFIG.test(name) && rel.split('/').length <= 2
+    if (!isConfig && !isSource(rel)) return
+    if (size > MAX_FILE_BYTES) {
+      skipped++
+      return
+    }
+    files.push({ path: rel, text: await readFile(full, 'utf8') })
   }
 
   const walkClaude = async (dir: string, depth: number): Promise<void> => {
@@ -76,5 +107,5 @@ export async function readRepo(root: string, maxFiles = 8000): Promise<ReadRepoR
 
   await walk(root, 0)
   files.sort((a, b) => (a.path < b.path ? -1 : 1))
-  return { files, skipped }
+  return { files, skipped, truncated }
 }

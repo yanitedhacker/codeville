@@ -21,6 +21,9 @@ describe('classify', () => {
     expect(role('tests/lib/billing.test.ts')).toBe('test')
     expect(role('scripts/apply-migration.mjs')).toBe('ops script')
     expect(role('next.config.mjs')).toBe('build config')
+    expect(role('src/lib/db.test.ts')).toBe('test')
+    expect(role('src/components/Button.test.tsx')).toBe('test')
+    expect(role('src/lib/db.ts')).toBe('service logic')
   })
 
   it('falls back to a generic role rather than guessing', () => {
@@ -150,5 +153,69 @@ describe('buildAtlas', () => {
     }))
     const capped = buildAtlas(wide, { now: NOW, maxNodes: 60 })
     expect(capped.nodes.length).toBeLessThanOrEqual(60)
+  })
+
+  it('prefers tsconfig.json over tsconfig.build.json regardless of input order', () => {
+    const files: VirtualFile[] = [
+      { path: 'tsconfig.build.json', text: '{ "extends": "./tsconfig.json" }' },
+      {
+        path: 'tsconfig.json',
+        text: '{ "compilerOptions": { "baseUrl": ".", "paths": { "@/*": ["./src/*"] } } }',
+      },
+      { path: 'src/a.ts', text: 'export const a = 1\n' },
+      { path: 'src/b.ts', text: 'import { a } from "@/a"\nimport React from "react"\n' },
+    ]
+    for (const order of [files, [...files].reverse()]) {
+      const built = buildAtlas(order, { now: NOW })
+      expect(built.links.some((l) => l.type === 'import' && l.to === 'src/a.ts')).toBe(true)
+      expect(built.nodes.some((n) => n.id === extId('@/a') || n.path === '@/a')).toBe(false)
+      expect(built.nodes.filter((n) => n.kind === 'external').map((n) => n.label)).toEqual(['react'])
+    }
+  })
+
+  it('folds colocated tests under src/lib into the src area', () => {
+    const onlyTests: VirtualFile[] = Array.from({ length: 10 }, (_, i) => ({
+      path: `src/lib/t${i}.test.ts`,
+      text: `import { describe } from "vitest"\n`,
+    }))
+    const built = buildAtlas(onlyTests, { now: NOW })
+    expect(built.repo.note).toMatch(/src/)
+    expect(built.nodes.filter((n) => n.kind !== 'external')).toHaveLength(1)
+    expect(built.nodes[0]?.kind).toBe('dir')
+    expect(onlyTests.every((f) => role(f.path) === 'test')).toBe(true)
+  })
+
+  it('does not fold a 40/60 test/source mix under src/lib', () => {
+    const mixed: VirtualFile[] = [
+      ...Array.from({ length: 6 }, (_, i) => ({ path: `src/lib/m${i}.ts`, text: `export const v${i} = ${i}\n` })),
+      ...Array.from({ length: 4 }, (_, i) => ({ path: `src/lib/m${i}.test.ts`, text: `import './m${i}.js'\n` })),
+    ]
+    const built = buildAtlas(mixed, { now: NOW })
+    expect(built.nodes.some((n) => n.path === 'src/lib/m0.ts')).toBe(true)
+    expect(built.repo.note).not.toContain('rolled into single blocks')
+  })
+
+  it('reports the real package count while capping rendered externals', () => {
+    const imports = Array.from({ length: 45 }, (_, i) => `import p${i} from "pkg${i}"`).join('\n')
+    const built = buildAtlas([{ path: 'src/app.ts', text: `${imports}\n` }], { now: NOW })
+    expect(built.stats.packages).toBe(45)
+    expect(built.nodes.filter((n) => n.kind === 'external')).toHaveLength(40)
+    expect(built.repo.note).toContain('40 of 45 packages shown')
+  })
+
+  it('includes externals in the node budget', () => {
+    const imports = Array.from({ length: 20 }, (_, i) => `import p${i} from "pkg${i}"`).join('\n')
+    const built = buildAtlas([{ path: 'src/app.ts', text: `${imports}\n` }], { now: NOW, maxNodes: 5 })
+    expect(built.stats.nodes).toBeLessThanOrEqual(5)
+    expect(built.nodes.length).toBeLessThanOrEqual(5)
+  })
+
+  it('does not collapse-to-one when maxNodes is NaN', () => {
+    const files: VirtualFile[] = Array.from({ length: 30 }, (_, i) => ({
+      path: `src/lib/m${i}.ts`,
+      text: `export const v${i} = ${i}\n`,
+    }))
+    const built = buildAtlas(files, { now: NOW, maxNodes: Number.NaN })
+    expect(built.nodes.length).toBeGreaterThan(1)
   })
 })
