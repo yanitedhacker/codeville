@@ -1,7 +1,7 @@
 import type { Atlas, BuildOptions, VirtualFile } from './types.js'
 import { parseJsonc } from './jsonc.js'
 import { scan, type ScanOptions } from './scan.js'
-import { createResolver, joinRepoPath, readCargoCrates, readGoModules, readTsconfigAliases, readWorkspacePackages, type ResolverOptions } from './resolve.js'
+import { createResolver, joinRepoPath, MAX_MANIFESTS, readCargoCrates, readGoModules, readTsconfigAliases, readWorkspacePackages, type ResolverOptions } from './resolve.js'
 import { buildGraph } from './graph.js'
 import { layout } from './layout.js'
 
@@ -28,13 +28,15 @@ export function buildAtlas(files: VirtualFile[], opts: BuildAtlasOptions = {}): 
 
   const name = opts.repoName ?? readPackageName(pkg?.text) ?? 'repository'
   const shownPkgs = graph.nodes.filter((n) => n.kind === 'external').length
+  const manifestCount = files.filter((f) => /(^|\/)package\.json$/.test(f.path)).length
+  const omittedWorkspaces = Math.max(0, manifestCount - MAX_MANIFESTS)
 
   return {
     repo: {
       name,
       ...(opts.ref ? { ref: opts.ref } : {}),
       generatedAt: (opts.now ?? (() => new Date().toISOString()))(),
-      note: buildNote(name, graph.denseAreas, shownPkgs, graph.packages),
+      note: buildNote(name, graph.denseAreas, shownPkgs, graph.packages, omittedWorkspaces),
     },
     stats: {
       nodes: positioned.length,
@@ -49,7 +51,7 @@ export function buildAtlas(files: VirtualFile[], opts: BuildAtlasOptions = {}): 
   }
 }
 
-function buildNote(name: string, rolledAreas: string[], shownPkgs = 0, totalPkgs = 0): string {
+function buildNote(name: string, rolledAreas: string[], shownPkgs = 0, totalPkgs = 0, omittedWorkspaces = 0): string {
   const rolled = rolledAreas.length
     ? ` ${humanList(rolledAreas)} ${rolledAreas.length === 1 ? 'is' : 'are'} rolled into single blocks.`
     : ''
@@ -57,11 +59,13 @@ function buildNote(name: string, rolledAreas: string[], shownPkgs = 0, totalPkgs
     totalPkgs > shownPkgs && shownPkgs >= 0
       ? ` ${shownPkgs} of ${totalPkgs} packages shown.`
       : ''
+  const omitted = omittedWorkspaces > 0 ? ` ${omittedWorkspaces} workspace packages omitted.` : ''
   return (
     `This is a focused source slice of ${name}, not the whole checkout. ` +
     `node_modules, build outputs, lockfiles, .env files, and nested worktrees are excluded.` +
     rolled +
     pkgs +
+    omitted +
     ` Dots are import packets.`
   )
 }

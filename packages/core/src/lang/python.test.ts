@@ -20,6 +20,14 @@ describe('python imports', () => {
   it('skips a commented-out import', () => {
     expect(specs('# import os\nimport sys\n')).toEqual(['sys'])
   })
+
+  it('joins a parenthesised from-import list and skips a bare paren token', () => {
+    expect(specs('from .models import (\n    Author,\n    Book,\n)\n')).toEqual([
+      '.models',
+      '.models.Author',
+      '.models.Book',
+    ])
+  })
 })
 
 describe('python package resolution', () => {
