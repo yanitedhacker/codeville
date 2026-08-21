@@ -1,5 +1,7 @@
+import { useEffect, useRef, useState } from 'react'
 import type { Atlas, AtlasLink, AtlasNode } from '@codeville/core'
 import { describeLink, describeSet } from '@codeville/core/explain/heuristic'
+import { askFlagFragment, chosenAskFn } from './ask-flags.js'
 
 export type Tab = 'does' | 'built'
 
@@ -111,23 +113,7 @@ function WhatItDoes({ node }: { node: AtlasNode }) {
         <pre className="cv-code">{node.excerpt.join('\n') || '(empty)'}</pre>
       </section>
 
-      {node.kind === 'file' && node.symbols && node.symbols.length > 0 && (
-        <section className="cv-section">
-          <span className="cv-label">Symbols / codeville ask --fn</span>
-          <input
-            className="cv-fn"
-            list={`cv-sym-${node.id.replace(/[^\w]+/g, '-')}`}
-            spellCheck={false}
-            placeholder="copy a name into --fn"
-            aria-label="Symbols for codeville ask --fn"
-          />
-          <datalist id={`cv-sym-${node.id.replace(/[^\w]+/g, '-')}`}>
-            {node.symbols.map((s) => (
-              <option value={s} key={s} />
-            ))}
-          </datalist>
-        </section>
-      )}
+      {node.kind === 'file' && <AskFlags key={node.id} node={node} />}
 
       <section className="cv-section">
         <span className="cv-label">What it contributes</span>
@@ -146,6 +132,92 @@ function WhatItDoes({ node }: { node: AtlasNode }) {
       </section>
     </>
   )
+}
+
+function AskFlags({ node }: { node: AtlasNode }) {
+  const symbols = node.symbols ?? []
+  const [typed, setTyped] = useState('')
+  const [copied, setCopied] = useState(false)
+  const copiedTimer = useRef(0)
+  const chosen = chosenAskFn(symbols, typed)
+  const needsFn = typed.length > 0 && chosen === undefined
+
+  useEffect(() => () => window.clearTimeout(copiedTimer.current), [])
+
+  function markCopied() {
+    setCopied(true)
+    window.clearTimeout(copiedTimer.current)
+    copiedTimer.current = window.setTimeout(() => setCopied(false), 1600)
+  }
+
+  return (
+    <section className="cv-section">
+      <span className="cv-label">{symbols.length > 0 ? 'Symbols / codeville ask --fn' : 'codeville ask --node'}</span>
+      {symbols.length > 0 && (
+        <>
+          <input
+            className="cv-fn"
+            list={`cv-sym-${node.id.replace(/[^\w]+/g, '-')}`}
+            spellCheck={false}
+            placeholder="pick a name from the list"
+            aria-label="Symbols for codeville ask --fn"
+            value={typed}
+            onChange={(e) => {
+              setTyped(e.target.value)
+              setCopied(false)
+            }}
+          />
+          <datalist id={`cv-sym-${node.id.replace(/[^\w]+/g, '-')}`}>
+            {symbols.map((s) => (
+              <option value={s} key={s} />
+            ))}
+          </datalist>
+        </>
+      )}
+      <button
+        type="button"
+        className="cv-btn"
+        disabled={needsFn}
+        title={needsFn ? 'Pick a --fn from the list' : undefined}
+        aria-label={needsFn ? 'Pick a --fn from the list' : 'Copy flags'}
+        onClick={() => {
+          const text = askFlagFragment(node.path, chosen)
+          // execCommand must run in this click turn. writeText is async and
+          // drops user activation on file://, where the Clipboard API still exists.
+          if (copyViaExecCommand(text)) {
+            markCopied()
+            return
+          }
+          if (typeof navigator === 'undefined' || !navigator.clipboard?.writeText) return
+          void navigator.clipboard.writeText(text).then(markCopied, () => {})
+        }}
+      >
+        {copied ? 'Copied' : 'Copy flags'}
+      </button>
+      <p className="cv-summary">The question is typed in the terminal; this page does not run ask.</p>
+    </section>
+  )
+}
+
+function copyViaExecCommand(text: string): boolean {
+  const el = document.createElement('textarea')
+  el.value = text
+  el.setAttribute('readonly', '')
+  el.style.position = 'fixed'
+  el.style.left = '0'
+  el.style.top = '0'
+  el.style.opacity = '0'
+  document.body.appendChild(el)
+  try {
+    el.focus()
+    el.select()
+    el.setSelectionRange(0, text.length)
+    return document.execCommand('copy')
+  } catch {
+    return false
+  } finally {
+    el.remove()
+  }
 }
 
 function HowItsBuilt({ atlas, node, onSelect }: { atlas: Atlas; node: AtlasNode; onSelect(id: string): void }) {
