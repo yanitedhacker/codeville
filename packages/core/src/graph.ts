@@ -58,7 +58,7 @@ export function buildGraph(files: FileRecord[], resolver: Resolver, opts: BuildO
   for (const f of files) {
     for (const imp of f.imports) {
       if (resolver.resolve(imp.spec, f.dir, f.path)) continue
-      const pkg = resolver.externalName(imp.spec)
+      const pkg = resolver.externalName(imp.spec, f.path)
       if (!pkg) continue
       const hit = externalHits.get(pkg) ?? { count: 0, samples: [] }
       hit.count++
@@ -185,7 +185,7 @@ export function buildGraph(files: FileRecord[], resolver: Resolver, opts: BuildO
     const from = visibleOf(f.path)
     for (const imp of f.imports) {
       if (resolver.resolve(imp.spec, f.dir, f.path)) continue
-      const pkg = resolver.externalName(imp.spec)
+      const pkg = resolver.externalName(imp.spec, f.path)
       if (pkg && externalSet.has(pkg)) addEdge(from, extId(pkg), 'external', imp.statement)
     }
   }

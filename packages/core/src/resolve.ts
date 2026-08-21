@@ -6,8 +6,10 @@ export interface Resolver {
   /** Returns a repo-relative file path, or null when the specifier is external. */
   resolve(spec: string, fromDir: string, fromFile?: string): string | null
   /** Package name for an unresolved specifier, or null if it should be dropped. */
-  externalName(spec: string): string | null
+  externalName(spec: string, fromFile?: string): string | null
 }
+
+const RUST_STD = new Set(['std', 'core', 'alloc', 'proc_macro', 'test'])
 
 const TRY_EXT = ['', '.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.mts', '.cts', '.vue', '.svelte', '.astro', '.py', '.go', '.rs']
 const TRY_INDEX = ['/index.ts', '/index.tsx', '/index.js', '/index.jsx', '/index.mjs', '/__init__.py', '/mod.rs']
@@ -31,6 +33,13 @@ export interface WorkspacePackage {
   manifest: Record<string, unknown>
 }
 
+/** Cargo package, keyed later by the underscored crate name. */
+export interface CargoCrate {
+  dir: string
+  root: string
+  entry: string
+}
+
 export interface ResolverOptions {
   /** tsconfig compilerOptions.paths, already flattened. `@/*` -> `./*` */
   aliases?: Record<string, string[]>
@@ -39,6 +48,10 @@ export interface ResolverOptions {
   workspaces?: Record<string, WorkspacePackage>
   /** go.mod `module` prefixes, longest first. */
   goModules?: { prefix: string; dir: string }[]
+  /** Workspace crate name (underscored) -> crate root. */
+  cargoCrates?: Record<string, CargoCrate>
+  /** Underscored names from [dependencies] and [dev-dependencies]. */
+  cargoDeps?: ReadonlySet<string>
 }
 
 export function createResolver(files: FileRecord[], opts: ResolverOptions = {}): Resolver {
@@ -47,6 +60,8 @@ export function createResolver(files: FileRecord[], opts: ResolverOptions = {}):
   const base = (opts.baseUrl ?? '').replace(/^\.\/?|\/$/g, '')
   const workspaces = opts.workspaces ?? {}
   const goModules = opts.goModules ?? []
+  const cargoCrates = opts.cargoCrates ?? {}
+  const cargoDeps = opts.cargoDeps
   const goByDir = goFilesByDir(files)
 
   const probe = (candidate: string | null): string | null => probeFile(index, candidate)
@@ -95,7 +110,7 @@ export function createResolver(files: FileRecord[], opts: ResolverOptions = {}):
         if (hit) return hit
       }
 
-      const rust = resolveRust(spec, fromFile, index)
+      const rust = resolveRust(spec, fromFile, index, cargoCrates)
       if (rust) return rust
 
       // Python intra-package: "app.logger" -> "app/logger.py". Trailing names
@@ -120,7 +135,7 @@ export function createResolver(files: FileRecord[], opts: ResolverOptions = {}):
       return probe(spec)
     },
 
-    externalName(spec) {
+    externalName(spec, fromFile) {
       if (spec.startsWith('.') || spec.startsWith('/')) return null
       if (aliases.some(([p]) => matchesAlias(spec, p))) return null
       const clean = spec.replace(/^node:/, '')
@@ -128,6 +143,16 @@ export function createResolver(files: FileRecord[], opts: ResolverOptions = {}):
       const name = externalLabel(clean)
       if (!name) return null
       if (workspaces[packageHead(clean)] || workspaces[name]) return null
+      const rustName = name.replace(/-/g, '_')
+      if (cargoCrates[rustName]) return null
+      if (
+        fromFile?.endsWith('.rs') &&
+        /^[A-Za-z_]\w*$/.test(clean) &&
+        !RUST_STD.has(rustName) &&
+        !cargoDeps?.has(rustName)
+      ) {
+        return null
+      }
       return name
     },
   }
@@ -231,7 +256,23 @@ function fileName(path: string): string {
   return slash < 0 ? path : path.slice(slash + 1)
 }
 
+function isImplicitCrateDir(dir: string): boolean {
+  if (!dir) return false
+  if (dir === 'src/bin' || dir.endsWith('/src/bin')) return true
+  const base = fileName(dir)
+  return base === 'tests' || base === 'benches' || base === 'examples'
+}
+
+function isModRsStyle(fromFile: string): boolean {
+  const file = fileName(fromFile)
+  return file === 'lib.rs' || file === 'main.rs' || file === 'mod.rs' || isImplicitCrateDir(fileDir(fromFile))
+}
+
 function crateRootDir(index: Set<string>, fromFile: string | undefined): string | null {
+  if (fromFile) {
+    const dir = fileDir(fromFile)
+    if (isImplicitCrateDir(dir)) return dir
+  }
   let dir = fromFile ? fileDir(fromFile) : ''
   for (;;) {
     if (index.has(dir ? `${dir}/lib.rs` : 'lib.rs') || index.has(dir ? `${dir}/main.rs` : 'main.rs')) return dir
@@ -247,9 +288,8 @@ function crateRootDir(index: Set<string>, fromFile: string | undefined): string 
 function rustSelfDir(fromFile: string): string | null {
   if (!fromFile) return null
   const dir = fileDir(fromFile)
-  const name = fileName(fromFile)
-  if (name === 'lib.rs' || name === 'main.rs' || name === 'mod.rs') return dir
-  const stem = name.replace(/\.rs$/, '')
+  if (isModRsStyle(fromFile)) return dir
+  const stem = fileName(fromFile).replace(/\.rs$/, '')
   return dir ? `${dir}/${stem}` : stem
 }
 
@@ -267,14 +307,8 @@ function rustPath(root: string | null, segs: string[], index: Set<string>): stri
 
 function rustModFile(fromFile: string, name: string, index: Set<string>): string | null {
   // #[path = "..."] attributes are out of scope.
-  const dir = fileDir(fromFile)
-  const file = fileName(fromFile)
-  const search =
-    file === 'lib.rs' || file === 'main.rs' || file === 'mod.rs'
-      ? dir
-      : dir
-        ? `${dir}/${file.replace(/\.rs$/, '')}`
-        : file.replace(/\.rs$/, '')
+  const search = rustSelfDir(fromFile)
+  if (search === null) return null
   const rs = search ? `${search}/${name}.rs` : `${name}.rs`
   const mod = search ? `${search}/${name}/mod.rs` : `${name}/mod.rs`
   if (index.has(rs)) return rs
@@ -282,23 +316,34 @@ function rustModFile(fromFile: string, name: string, index: Set<string>): string
   return null
 }
 
-function resolveRust(spec: string, fromFile: string | undefined, index: Set<string>): string | null {
+function resolveRust(
+  spec: string,
+  fromFile: string | undefined,
+  index: Set<string>,
+  cargoCrates: Record<string, CargoCrate>,
+): string | null {
   if (spec.includes('::')) {
     const segs = spec.split('::').filter(Boolean)
     const head = segs[0]
     const rest = segs.slice(1)
     if (head === 'crate') return rustPath(crateRootDir(index, fromFile), rest, index)
-    if (!fromFile) return null
-    if (head === 'self') return rustPath(rustSelfDir(fromFile), rest, index)
+    if (head === 'self') return fromFile ? rustPath(rustSelfDir(fromFile), rest, index) : null
     if (head === 'super') {
+      if (!fromFile) return null
       const self = rustSelfDir(fromFile)
       if (self === null || self === '') return rustPath('', rest, index)
       return rustPath(fileDir(self), rest, index)
     }
+    const ws = head ? cargoCrates[head] : undefined
+    if (ws) return rest.length ? rustPath(ws.root, rest, index) ?? ws.entry : ws.entry
+    if (fromFile && head) {
+      const local = rustPath(rustSelfDir(fromFile), segs, index)
+      if (local) return local
+    }
     return null
   }
-  if (fromFile?.endsWith('.rs') && /^[A-Za-z_]\w*$/.test(spec)) return rustModFile(fromFile, spec, index)
-  return null
+  const ws = cargoCrates[spec]
+  return ws ? ws.entry : null
 }
 
 /** First `module` line of each go.mod, longest prefix first so nested modules win. */
@@ -313,6 +358,80 @@ export function readGoModules(files: { path: string; text: string }[]): { prefix
   }
   out.sort((a, b) => b.prefix.length - a.prefix.length || (a.dir < b.dir ? -1 : a.dir > b.dir ? 1 : 0))
   return out
+}
+
+function rustIdent(name: string): string {
+  return name.replace(/-/g, '_')
+}
+
+function tomlQuoted(line: string): string | null {
+  const m = /=\s*"([^"]*)"/.exec(line) ?? /=\s*'([^']*)'/.exec(line)
+  return m?.[1] ?? null
+}
+
+function parseCargoToml(text: string): { name?: string; libPath?: string; deps: string[] } {
+  let section = ''
+  let name: string | undefined
+  let libPath: string | undefined
+  const deps: string[] = []
+  for (const line of text.split('\n')) {
+    const header = /^\s*\[([^\]]+)\]/.exec(line)
+    if (header) {
+      section = header[1]!.trim()
+      continue
+    }
+    const kv = /^\s*([A-Za-z0-9_-]+)\s*=/.exec(line)
+    if (!kv?.[1]) continue
+    const key = kv[1]
+    if (section === 'package' && key === 'name') {
+      const v = tomlQuoted(line)
+      if (v) name = rustIdent(v)
+    } else if (section === 'lib' && key === 'path') {
+      const v = tomlQuoted(line)
+      if (v) libPath = v
+    } else if (section === 'dependencies' || section === 'dev-dependencies') {
+      deps.push(rustIdent(key))
+    }
+  }
+  return { name, libPath, deps }
+}
+
+function cargoEntry(dir: string, libPath: string | undefined, index: Set<string>): { root: string; entry: string } | null {
+  const candidates = [
+    libPath ? joinRepoPath(dir, libPath) : null,
+    joinRepoPath(dir, 'src/lib.rs'),
+    joinRepoPath(dir, 'src/main.rs'),
+    joinRepoPath(dir, 'lib.rs'),
+    joinRepoPath(dir, 'main.rs'),
+  ]
+  for (const p of candidates) {
+    if (p && index.has(p)) return { root: fileDir(p), entry: p }
+  }
+  return null
+}
+
+/** Workspace Cargo.toml packages, plus the union of their declared dependencies. */
+export function readCargoCrates(
+  files: { path: string; text: string }[],
+  index: Set<string>,
+): { crates: Record<string, CargoCrate>; deps: Set<string> } {
+  const chosen = files
+    .filter((f) => /(^|\/)Cargo\.toml$/.test(f.path))
+    .sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
+    .slice(0, MAX_MANIFESTS)
+
+  const crates: Record<string, CargoCrate> = {}
+  const deps = new Set<string>()
+  for (const f of chosen) {
+    const parsed = parseCargoToml(f.text)
+    for (const d of parsed.deps) deps.add(d)
+    if (!parsed.name || crates[parsed.name]) continue
+    const dir = f.path.includes('/') ? f.path.slice(0, f.path.lastIndexOf('/')) : ''
+    const located = cargoEntry(dir, parsed.libPath, index)
+    if (!located) continue
+    crates[parsed.name] = { dir, ...located }
+  }
+  return { crates, deps }
 }
 
 function probeFile(index: Set<string>, candidate: string | null): string | null {

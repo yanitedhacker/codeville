@@ -115,7 +115,7 @@ export function extract(archive: Buffer, repo: string, ref: string): GithubResul
     const base = rel.slice(rel.lastIndexOf('/') + 1)
     const depth = rel.split('/').length
     const keepTs = KEEP_TSCONFIG.test(base) && depth <= 2
-    const keepPkg = base === 'package.json' || base === 'go.mod'
+    const keepPkg = base === 'package.json' || base === 'go.mod' || base === 'Cargo.toml'
     if (!SOURCE_EXT.has(ext) && !keepTs && !keepPkg) return
 
     if (files.length >= MAX_FILES || total + entry.size > MAX_TOTAL_BYTES) {
@@ -127,14 +127,19 @@ export function extract(archive: Buffer, repo: string, ref: string): GithubResul
     total += entry.size
   })
 
-  return { repo, ref, files: capPackageJson(files, MAX_MANIFESTS), truncated }
+  return { repo, ref, files: capManifests(files, MAX_MANIFESTS), truncated }
 }
 
-function capPackageJson<T extends { path: string }>(files: T[], max: number): T[] {
-  const pkgs = files.filter((f) => /(^|\/)package\.json$/.test(f.path)).sort((a, b) => (a.path < b.path ? -1 : 1))
+function capByBasename<T extends { path: string }>(files: T[], basename: string, max: number): T[] {
+  const is = (p: string): boolean => p === basename || p.endsWith('/' + basename)
+  const pkgs = files.filter((f) => is(f.path)).sort((a, b) => (a.path < b.path ? -1 : 1))
   if (pkgs.length <= max) return files
   const keep = new Set(pkgs.slice(0, max).map((f) => f.path))
-  return files.filter((f) => !/(^|\/)package\.json$/.test(f.path) || keep.has(f.path))
+  return files.filter((f) => !is(f.path) || keep.has(f.path))
+}
+
+function capManifests<T extends { path: string }>(files: T[], max: number): T[] {
+  return capByBasename(capByBasename(files, 'package.json', max), 'Cargo.toml', max)
 }
 
 export function gunzipArchive(archive: Buffer, maxOutputLength = MAX_GUNZIP_BYTES): Buffer {

@@ -23,7 +23,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "atlas": "tsx packages/cli/src/index.ts",
     "fidelity": "tsx scripts/fidelity.ts",
-    "langs": "tsx scripts/langs.ts"
+    "langs": "tsx scripts/langs.ts",
+    "realrepo": "tsx scripts/realrepo.ts"
   },
   "devDependencies": {
     "@types/node": "^22.14.1",

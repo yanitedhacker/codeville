@@ -7,7 +7,8 @@ const MAX_FILE_BYTES = 512 * 1024
 const PRUNE = /(^|\/)(node_modules|\.git|\.next|dist|build|out|coverage|target|vendor|venv|\.venv|__pycache__|\.playwright-mcp|\.claude\/worktrees)\//
 const KEEP_TSCONFIG = /(^|\/)(tsconfig(\.\w+)?\.json|jsconfig\.json)$/
 const KEEP_PKG = /(^|\/)package\.json$/
-const KEEP_DEEP = /(^|\/)(package\.json|go\.mod)$/
+const KEEP_CARGO = /(^|\/)Cargo\.toml$/
+const KEEP_DEEP = /(^|\/)(package\.json|go\.mod|Cargo\.toml)$/
 const MAX_MANIFESTS = 200
 
 /** Config files scan() drops but buildAtlas() reads first, so keep them near the root. */
@@ -18,14 +19,19 @@ function wanted(path: string): boolean {
   return KEEP_TSCONFIG.test(path) && path.split('/').length <= 2
 }
 
-function capPackageJson(files: VirtualFile[], max = MAX_MANIFESTS): void {
-  const pkgs = files.filter((f) => KEEP_PKG.test(f.path)).sort((a, b) => (a.path < b.path ? -1 : 1))
+function capNamed(files: VirtualFile[], re: RegExp, max = MAX_MANIFESTS): void {
+  const pkgs = files.filter((f) => re.test(f.path)).sort((a, b) => (a.path < b.path ? -1 : 1))
   if (pkgs.length <= max) return
   const keep = new Set(pkgs.slice(0, max).map((f) => f.path))
   for (let i = files.length - 1; i >= 0; i--) {
     const f = files[i]
-    if (f && KEEP_PKG.test(f.path) && !keep.has(f.path)) files.splice(i, 1)
+    if (f && re.test(f.path) && !keep.has(f.path)) files.splice(i, 1)
   }
+}
+
+function capManifests(files: VirtualFile[]): void {
+  capNamed(files, KEEP_PKG)
+  capNamed(files, KEEP_CARGO)
 }
 
 export interface Ingested {
@@ -80,7 +86,7 @@ export async function fromDataTransfer(items: DataTransferItemList): Promise<Ing
   }
 
   if (files.length === 0) throw new Error('No source files found in that folder.')
-  capPackageJson(files)
+  capManifests(files)
   return { name: roots[0]?.name ?? 'repository', files, truncated }
 }
 
@@ -108,7 +114,7 @@ export async function fromFileList(list: FileList): Promise<Ingested> {
   }
 
   if (files.length === 0) throw new Error('No source files found in that selection.')
-  capPackageJson(files)
+  capManifests(files)
   return { name: root, files, truncated }
 }
 
@@ -132,7 +138,7 @@ export async function fromZip(blob: File): Promise<Ingested> {
   }
 
   if (files.length === 0) throw new Error('No source files found in that archive.')
-  capPackageJson(files)
+  capManifests(files)
   return { name: blob.name.replace(/\.zip$/i, ''), files, truncated }
 }
 

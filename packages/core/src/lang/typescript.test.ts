@@ -75,7 +75,7 @@ describe('go imports', () => {
 describe('rust imports', () => {
   it('keeps the whole path including self and super', () => {
     const text = 'use std::io::Read;\nuse self::helper;\npub use serde::Serialize;\nmod util;\n'
-    expect(specs('main.rs', text)).toEqual(['std::io::Read', 'self::helper', 'serde::Serialize', 'util'])
+    expect(specs('main.rs', text)).toEqual(['std::io::Read', 'self::helper', 'serde::Serialize', 'self::util'])
   })
 })
 

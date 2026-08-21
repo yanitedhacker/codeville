@@ -87,7 +87,7 @@ export async function readRepo(root: string, maxFiles = 8000): Promise<ReadRepoR
     const rel = relative(root, full).split(sep).join('/')
     const segs = rel.split('/').length
     const keepTs = KEEP_TSCONFIG.test(name) && segs <= 2
-    const keepPkg = name === 'package.json' || name === 'go.mod'
+    const keepPkg = name === 'package.json' || name === 'go.mod' || name === 'Cargo.toml'
     if (!keepTs && !keepPkg && !isSource(rel)) return
     if (size > MAX_FILE_BYTES) {
       skipped++
@@ -110,16 +110,18 @@ export async function readRepo(root: string, maxFiles = 8000): Promise<ReadRepoR
 
   await walk(root, 0)
   files.sort((a, b) => (a.path < b.path ? -1 : 1))
-  capPackageJson(files, MAX_MANIFESTS)
+  capNamed(files, 'package.json', MAX_MANIFESTS)
+  capNamed(files, 'Cargo.toml', MAX_MANIFESTS)
   return { files, skipped, truncated }
 }
 
-function capPackageJson(files: VirtualFile[], max: number): void {
-  const pkgs = files.filter((f) => /(^|\/)package\.json$/.test(f.path))
-  if (pkgs.length <= max) return
-  const keep = new Set(pkgs.slice(0, max).map((f) => f.path))
+function capNamed(files: VirtualFile[], basename: string, max: number): void {
+  const is = (p: string): boolean => p === basename || p.endsWith('/' + basename)
+  const hits = files.filter((f) => is(f.path))
+  if (hits.length <= max) return
+  const keep = new Set(hits.slice(0, max).map((f) => f.path))
   for (let i = files.length - 1; i >= 0; i--) {
     const f = files[i]
-    if (f && /(^|\/)package\.json$/.test(f.path) && !keep.has(f.path)) files.splice(i, 1)
+    if (f && is(f.path) && !keep.has(f.path)) files.splice(i, 1)
   }
 }
