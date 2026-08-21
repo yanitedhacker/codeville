@@ -2,8 +2,19 @@
   "name": "codeville",
   "private": true,
   "version": "0.1.0",
+  "description": "Drop a repo. Get a city.",
+  "license": "MIT",
   "type": "module",
   "engines": { "node": ">=20.19" },
+  "packageManager": "pnpm@10.12.1",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/OWNER/codeville.git"
+  },
+  "bugs": {
+    "url": "https://github.com/OWNER/codeville/issues"
+  },
+  "homepage": "https://github.com/OWNER/codeville#readme",
   "scripts": {
     "dev": "pnpm -F @codeville/web dev",
     "build": "pnpm -F @codeville/web build",

@@ -1,0 +1,38 @@
+name: Bug
+description: Something is wrong with the atlas, CLI, or ingest.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Security issues go through [SECURITY.md](https://github.com/OWNER/codeville/blob/main/SECURITY.md), not here.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you saw versus what you expected.
+    validations:
+      required: true
+  - type: dropdown
+    id: door
+    attributes:
+      label: Front door
+      options:
+        - Folder drop
+        - Zip
+        - GitHub paste
+        - CLI
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: How to reproduce
+      description: Commands, a public repo, or a minimal tree. Do not paste secrets.
+      render: bash
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Commit SHA or `0.1.0`.
