@@ -31,6 +31,7 @@ export interface GithubResult {
   ref: string
   files: { path: string; text: string }[]
   truncated: boolean
+  omittedWorkspaces: number
 }
 
 function isRepoSegment(s: string): boolean {
@@ -127,19 +128,22 @@ export function extract(archive: Buffer, repo: string, ref: string): GithubResul
     total += entry.size
   })
 
-  return { repo, ref, files: capManifests(files, MAX_MANIFESTS), truncated }
+  const { files: capped, omittedWorkspaces } = capManifests(files, MAX_MANIFESTS)
+  return { repo, ref, files: capped, truncated, omittedWorkspaces }
 }
 
-function capByBasename<T extends { path: string }>(files: T[], basename: string, max: number): T[] {
+function capByBasename<T extends { path: string }>(files: T[], basename: string, max: number): { files: T[]; omitted: number } {
   const is = (p: string): boolean => p === basename || p.endsWith('/' + basename)
   const pkgs = files.filter((f) => is(f.path)).sort((a, b) => (a.path < b.path ? -1 : 1))
-  if (pkgs.length <= max) return files
+  if (pkgs.length <= max) return { files, omitted: 0 }
   const keep = new Set(pkgs.slice(0, max).map((f) => f.path))
-  return files.filter((f) => !is(f.path) || keep.has(f.path))
+  return { files: files.filter((f) => !is(f.path) || keep.has(f.path)), omitted: pkgs.length - max }
 }
 
-function capManifests<T extends { path: string }>(files: T[], max: number): T[] {
-  return capByBasename(capByBasename(files, 'package.json', max), 'Cargo.toml', max)
+function capManifests<T extends { path: string }>(files: T[], max: number): { files: T[]; omittedWorkspaces: number } {
+  const pkgs = capByBasename(files, 'package.json', max)
+  const cargo = capByBasename(pkgs.files, 'Cargo.toml', max)
+  return { files: cargo.files, omittedWorkspaces: pkgs.omitted }
 }
 
 export function gunzipArchive(archive: Buffer, maxOutputLength = MAX_GUNZIP_BYTES): Buffer {

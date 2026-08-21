@@ -5,7 +5,10 @@ import { createResolver, joinRepoPath, MAX_MANIFESTS, readCargoCrates, readGoMod
 import { buildGraph } from './graph.js'
 import { layout } from './layout.js'
 
-export interface BuildAtlasOptions extends BuildOptions, ScanOptions {}
+export interface BuildAtlasOptions extends BuildOptions, ScanOptions {
+  /** package.json files ingest dropped before scan, when known. */
+  omittedWorkspaces?: number
+}
 
 export function buildAtlas(files: VirtualFile[], opts: BuildAtlasOptions = {}): Atlas {
   // tsconfig and package.json are read before scan drops them as non-source.
@@ -29,7 +32,7 @@ export function buildAtlas(files: VirtualFile[], opts: BuildAtlasOptions = {}): 
   const name = opts.repoName ?? readPackageName(pkg?.text) ?? 'repository'
   const shownPkgs = graph.nodes.filter((n) => n.kind === 'external').length
   const manifestCount = files.filter((f) => /(^|\/)package\.json$/.test(f.path)).length
-  const omittedWorkspaces = Math.max(0, manifestCount - MAX_MANIFESTS)
+  const omittedWorkspaces = opts.omittedWorkspaces ?? Math.max(0, manifestCount - MAX_MANIFESTS)
 
   return {
     repo: {
@@ -59,7 +62,10 @@ function buildNote(name: string, rolledAreas: string[], shownPkgs = 0, totalPkgs
     totalPkgs > shownPkgs && shownPkgs >= 0
       ? ` ${shownPkgs} of ${totalPkgs} packages shown.`
       : ''
-  const omitted = omittedWorkspaces > 0 ? ` ${omittedWorkspaces} workspace packages omitted.` : ''
+  const omitted =
+    omittedWorkspaces > 0
+      ? ` ${omittedWorkspaces} workspace package${omittedWorkspaces === 1 ? '' : 's'} omitted.`
+      : ''
   return (
     `This is a focused source slice of ${name}, not the whole checkout. ` +
     `node_modules, build outputs, lockfiles, .env files, and nested worktrees are excluded.` +

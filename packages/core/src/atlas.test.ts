@@ -272,7 +272,27 @@ describe('buildAtlas', () => {
       }),
     ]
     const built = buildAtlas(files, { now: NOW, maxNodes: 500 })
-    expect(built.repo.note).toContain('1 workspace packages omitted')
+    expect(built.repo.note).toContain('1 workspace package omitted')
+    expect(built.nodes.some((n) => n.kind === 'external' && n.label === '@ws/p200')).toBe(true)
+  })
+
+  it('uses the omittedWorkspaces count ingest reports after capping', () => {
+    const files: VirtualFile[] = [
+      { path: 'src/app.ts', text: 'import { x } from "@ws/p200"\n' },
+      ...Array.from({ length: 200 }, (_, i) => {
+        const id = String(i).padStart(3, '0')
+        return {
+          path: `packages/p${id}/package.json`,
+          text: `{"name":"@ws/p${id}","main":"./index.ts"}`,
+        }
+      }),
+      ...Array.from({ length: 200 }, (_, i) => {
+        const id = String(i).padStart(3, '0')
+        return { path: `packages/p${id}/index.ts`, text: 'export const x = 1\n' }
+      }),
+    ]
+    const built = buildAtlas(files, { now: NOW, maxNodes: 500, omittedWorkspaces: 1 })
+    expect(built.repo.note).toContain('1 workspace package omitted')
     expect(built.nodes.some((n) => n.kind === 'external' && n.label === '@ws/p200')).toBe(true)
   })
 })

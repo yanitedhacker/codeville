@@ -260,7 +260,9 @@ function isImplicitCrateDir(dir: string): boolean {
   if (!dir) return false
   if (dir === 'src/bin' || dir.endsWith('/src/bin')) return true
   const base = fileName(dir)
-  return base === 'tests' || base === 'benches' || base === 'examples'
+  if (base !== 'tests' && base !== 'benches' && base !== 'examples') return false
+  // Cargo auto-discovers these as siblings of src/, never inside it.
+  return !dir.split('/').includes('src')
 }
 
 function isModRsStyle(fromFile: string): boolean {
@@ -286,6 +288,7 @@ function crateRootDir(index: Set<string>, fromFile: string | undefined): string 
 }
 
 function rustSelfDir(fromFile: string): string | null {
+  // #[path = "..."] attributes are out of scope.
   if (!fromFile) return null
   const dir = fileDir(fromFile)
   if (isModRsStyle(fromFile)) return dir
@@ -302,17 +305,6 @@ function rustPath(root: string | null, segs: string[], index: Set<string>): stri
     if (index.has(base + '.rs')) return base + '.rs'
     if (index.has(base + '/mod.rs')) return base + '/mod.rs'
   }
-  return null
-}
-
-function rustModFile(fromFile: string, name: string, index: Set<string>): string | null {
-  // #[path = "..."] attributes are out of scope.
-  const search = rustSelfDir(fromFile)
-  if (search === null) return null
-  const rs = search ? `${search}/${name}.rs` : `${name}.rs`
-  const mod = search ? `${search}/${name}/mod.rs` : `${name}/mod.rs`
-  if (index.has(rs)) return rs
-  if (index.has(mod)) return mod
   return null
 }
 

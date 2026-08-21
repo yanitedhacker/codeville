@@ -19,25 +19,28 @@ function wanted(path: string): boolean {
   return KEEP_TSCONFIG.test(path) && path.split('/').length <= 2
 }
 
-function capNamed(files: VirtualFile[], re: RegExp, max = MAX_MANIFESTS): void {
+function capNamed(files: VirtualFile[], re: RegExp, max = MAX_MANIFESTS): number {
   const pkgs = files.filter((f) => re.test(f.path)).sort((a, b) => (a.path < b.path ? -1 : 1))
-  if (pkgs.length <= max) return
+  if (pkgs.length <= max) return 0
   const keep = new Set(pkgs.slice(0, max).map((f) => f.path))
   for (let i = files.length - 1; i >= 0; i--) {
     const f = files[i]
     if (f && re.test(f.path) && !keep.has(f.path)) files.splice(i, 1)
   }
+  return pkgs.length - max
 }
 
-function capManifests(files: VirtualFile[]): void {
-  capNamed(files, KEEP_PKG)
+function capManifests(files: VirtualFile[]): number {
+  const omittedWorkspaces = capNamed(files, KEEP_PKG)
   capNamed(files, KEEP_CARGO)
+  return omittedWorkspaces
 }
 
 export interface Ingested {
   name: string
   files: VirtualFile[]
   truncated: boolean
+  omittedWorkspaces: number
 }
 
 /** Folder drop: walk the DataTransfer entry tree. Never touches the network. */
@@ -86,8 +89,8 @@ export async function fromDataTransfer(items: DataTransferItemList): Promise<Ing
   }
 
   if (files.length === 0) throw new Error('No source files found in that folder.')
-  capManifests(files)
-  return { name: roots[0]?.name ?? 'repository', files, truncated }
+  const omittedWorkspaces = capManifests(files)
+  return { name: roots[0]?.name ?? 'repository', files, truncated, omittedWorkspaces }
 }
 
 /** `<input type="file" webkitdirectory>` fallback for browsers without entry APIs. */
@@ -114,8 +117,8 @@ export async function fromFileList(list: FileList): Promise<Ingested> {
   }
 
   if (files.length === 0) throw new Error('No source files found in that selection.')
-  capManifests(files)
-  return { name: root, files, truncated }
+  const omittedWorkspaces = capManifests(files)
+  return { name: root, files, truncated, omittedWorkspaces }
 }
 
 export async function fromZip(blob: File): Promise<Ingested> {
@@ -138,16 +141,16 @@ export async function fromZip(blob: File): Promise<Ingested> {
   }
 
   if (files.length === 0) throw new Error('No source files found in that archive.')
-  capManifests(files)
-  return { name: blob.name.replace(/\.zip$/i, ''), files, truncated }
+  const omittedWorkspaces = capManifests(files)
+  return { name: blob.name.replace(/\.zip$/i, ''), files, truncated, omittedWorkspaces }
 }
 
 export async function fromGithub(input: string): Promise<Ingested> {
   const res = await fetch(`/api/github?repo=${encodeURIComponent(input)}`)
-  const body = (await res.json()) as { error?: string; repo?: string; files?: VirtualFile[]; truncated?: boolean }
+  const body = (await res.json()) as { error?: string; repo?: string; files?: VirtualFile[]; truncated?: boolean; omittedWorkspaces?: number }
   if (!res.ok) throw new Error(body.error ?? `GitHub fetch failed (${res.status})`)
   if (!body.files?.length) throw new Error('That repository has no readable source files.')
-  return { name: body.repo ?? input, files: body.files, truncated: body.truncated ?? false }
+  return { name: body.repo ?? input, files: body.files, truncated: body.truncated ?? false, omittedWorkspaces: body.omittedWorkspaces ?? 0 }
 }
 
 /** GitHub archives nest everything under `<repo>-<sha>/`; drop that first segment. */

@@ -88,11 +88,12 @@ async function loadAtlas(args: AskArgs): Promise<Atlas> {
     }
     return atlas
   }
-  const { files } = await readRepo(args.root)
+  const { files, omittedWorkspaces } = await readRepo(args.root)
   if (files.length === 0) throw new Error(`No source files found under ${args.root}`)
   return buildAtlas(files, {
     exclude: args.exclude,
     ...(args.maxNodes !== undefined ? { maxNodes: args.maxNodes } : {}),
+    ...(omittedWorkspaces ? { omittedWorkspaces } : {}),
   })
 }
 

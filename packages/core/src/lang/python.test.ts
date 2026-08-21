@@ -28,6 +28,10 @@ describe('python imports', () => {
       '.models.Book',
     ])
   })
+
+  it('does not treat a trailing comment parenthesis as an open import list', () => {
+    expect(specs('from x import y  # see foo(\nimport os\nimport sys\n')).toEqual(['x', 'x.y', 'os', 'sys'])
+  })
 })
 
 describe('python package resolution', () => {

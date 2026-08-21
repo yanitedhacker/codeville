@@ -46,4 +46,21 @@ describe('readRepo', () => {
       await rm(outside, { recursive: true, force: true })
     }
   })
+
+  it('reports package.json files dropped by the manifest cap', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'cv-manifests-'))
+    try {
+      await writeFile(join(dir, 'app.ts'), 'export const a = 1\n')
+      for (let i = 0; i < 201; i++) {
+        const id = String(i).padStart(3, '0')
+        await mkdir(join(dir, `p${id}`))
+        await writeFile(join(dir, `p${id}`, 'package.json'), `{"name":"@ws/p${id}"}\n`)
+      }
+      const { files, omittedWorkspaces } = await readRepo(dir)
+      expect(omittedWorkspaces).toBe(1)
+      expect(files.filter((f) => /(^|\/)package\.json$/.test(f.path))).toHaveLength(200)
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
 })

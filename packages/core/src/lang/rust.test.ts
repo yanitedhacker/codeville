@@ -28,6 +28,7 @@ describe('rust imports', () => {
     expect(specs('use crate::{self, x};\n')).toEqual(['crate', 'crate::x'])
     expect(specs('use crate::{Foo as Bar, *};\n')).toEqual(['crate::Foo'])
     expect(specs('pub use crate::{\n    graph,\n    layout,\n};\n')).toEqual(['crate::graph', 'crate::layout'])
+    expect(specs('use std::io::Read; // leftover {\n')).toEqual(['std::io::Read'])
   })
 
   it('emits mod declarations as self::name', () => {
@@ -113,6 +114,22 @@ describe('rust crate resolution', () => {
         'tests/regression.rs',
       ),
     ).toBe('tests/hay.rs')
+  })
+
+  it('does not treat src/tests as a cargo integration-test crate', () => {
+    expect(
+      resolveFrom(
+        [
+          { path: 'src/lib.rs', text: 'mod tests;\n' },
+          { path: 'src/hay.rs', text: 'pub const S: &str = "";\n' },
+          { path: 'src/tests/mod.rs', text: '' },
+          { path: 'src/tests/regress.rs', text: 'use crate::hay::S;\n' },
+          { path: 'src/tests/hay.rs', text: 'pub const S: &str = "wrong";\n' },
+        ],
+        'crate::hay::S',
+        'src/tests/regress.rs',
+      ),
+    ).toBe('src/hay.rs')
   })
 
   it('resolves a Cargo workspace member and does not draw it as an external', () => {

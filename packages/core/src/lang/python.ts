@@ -1,4 +1,5 @@
 import type { ImportRef } from '../types.js'
+import { joinBalanced } from './balance.js'
 import { normalize } from './typescript.js'
 
 const FROM = /^\s*from\s+([.\w]+)\s+import\s+(.+)$/
@@ -21,7 +22,7 @@ export function extractPython(text: string): ImportRef[] {
     if (!/^(?:from|import)\s/.test(start)) continue
 
     if (/^\s*from\s/.test(line)) {
-      const joined = joinBalanced(lines, i, '(', ')', 40)
+      const joined = joinBalanced(lines, i, '(', ')', 40, '#')
       i = joined.end
       const flat = joined.text.replace(/\s+/g, ' ')
       const from = FROM.exec(flat)
@@ -59,30 +60,3 @@ function importName(raw: string): string {
   return s
 }
 
-function joinBalanced(
-  lines: string[],
-  start: number,
-  open: string,
-  close: string,
-  cap: number,
-): { text: string; end: number } {
-  let text = lines[start] ?? ''
-  let depth = 0
-  for (const ch of text) {
-    if (ch === open) depth++
-    else if (ch === close) depth--
-  }
-  if (depth <= 0) return { text, end: start }
-  const last = Math.min(lines.length - 1, start + cap - 1)
-  let i = start
-  while (depth > 0 && i < last) {
-    i++
-    const next = lines[i] ?? ''
-    text += '\n' + next
-    for (const ch of next) {
-      if (ch === open) depth++
-      else if (ch === close) depth--
-    }
-  }
-  return { text, end: i }
-}
