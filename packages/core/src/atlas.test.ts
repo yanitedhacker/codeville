@@ -241,4 +241,18 @@ describe('buildAtlas', () => {
     const built = buildAtlas(files, { now: NOW, maxNodes: Number.NaN })
     expect(built.nodes.length).toBeGreaterThan(1)
   })
+
+  it('turns a workspace package import into a file-to-file edge', () => {
+    const files: VirtualFile[] = [
+      { path: 'packages/a/package.json', text: '{"name":"@ws/a","main":"./src/index.ts"}' },
+      { path: 'packages/b/package.json', text: '{"name":"@ws/b","main":"./src/index.ts"}' },
+      { path: 'packages/a/src/index.ts', text: 'import { x } from "@ws/b"\nexport const a = 1\n' },
+      { path: 'packages/b/src/index.ts', text: 'export const x = 1\n' },
+    ]
+    const built = buildAtlas(files, { now: NOW })
+    expect(built.links).toContainEqual(
+      expect.objectContaining({ from: 'packages/a/src/index.ts', to: 'packages/b/src/index.ts', type: 'import' }),
+    )
+    expect(built.nodes.filter((n) => n.kind === 'external')).toHaveLength(0)
+  })
 })

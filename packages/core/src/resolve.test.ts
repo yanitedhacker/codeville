@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { createResolver, readTsconfigAliases } from './resolve.js'
+import { createResolver, readTsconfigAliases, readWorkspacePackages } from './resolve.js'
 import { parseJsonc, stripJsonc } from './jsonc.js'
 import type { FileRecord } from './types.js'
 
@@ -181,5 +181,70 @@ describe('resolve', () => {
   it('returns null when a rewritten specifier still has no file', () => {
     const r = createResolver(files('src/a.ts'))
     expect(r.resolve('./missing.js', 'src')).toBeNull()
+  })
+})
+
+describe('workspace packages', () => {
+  it('resolves a workspace name to the file named in main', () => {
+    const repo = files('packages/core/src/index.ts')
+    const workspaces = readWorkspacePackages(
+      [{ path: 'packages/core/package.json', text: '{"name":"@acme/core","main":"./src/index.ts"}' }],
+      new Set(repo.map((f) => f.path)),
+    )
+    const r = createResolver(repo, { workspaces })
+    expect(r.resolve('@acme/core', 'app')).toBe('packages/core/src/index.ts')
+  })
+
+  it('resolves a subpath through the package exports map', () => {
+    const repo = files('packages/core/src/index.ts', 'packages/core/src/util.ts')
+    const workspaces = readWorkspacePackages(
+      [
+        {
+          path: 'packages/core/package.json',
+          text: '{"name":"@acme/core","exports":{"./*":"./src/*.ts"}}',
+        },
+      ],
+      new Set(repo.map((f) => f.path)),
+    )
+    const r = createResolver(repo, { workspaces })
+    expect(r.resolve('@acme/core/util', 'app')).toBe('packages/core/src/util.ts')
+  })
+
+  it('does not treat a workspace package as an external', () => {
+    const repo = files('packages/core/src/index.ts')
+    const workspaces = readWorkspacePackages(
+      [{ path: 'packages/core/package.json', text: '{"name":"@acme/core","main":"./src/index.ts"}' }],
+      new Set(repo.map((f) => f.path)),
+    )
+    const r = createResolver(repo, { workspaces })
+    expect(r.externalName('@acme/core')).toBeNull()
+    expect(r.externalName('react')).toBe('react')
+  })
+
+  it('ignores a manifest with no name field without throwing', () => {
+    expect(() =>
+      readWorkspacePackages(
+        [{ path: 'package.json', text: '{"main":"./src/index.ts"}' }],
+        new Set(['src/index.ts']),
+      ),
+    ).not.toThrow()
+    expect(
+      readWorkspacePackages(
+        [{ path: 'package.json', text: '{"main":"./src/index.ts"}' }],
+        new Set(['src/index.ts']),
+      ),
+    ).toEqual({})
+  })
+
+  it('skips a manifest whose entry resolves to nothing, so the specifier stays external', () => {
+    const repo = files('src/app.ts')
+    const workspaces = readWorkspacePackages(
+      [{ path: 'packages/ghost/package.json', text: '{"name":"@acme/ghost","main":"./missing.js"}' }],
+      new Set(repo.map((f) => f.path)),
+    )
+    expect(workspaces).toEqual({})
+    const r = createResolver(repo, { workspaces })
+    expect(r.resolve('@acme/ghost', 'src')).toBeNull()
+    expect(r.externalName('@acme/ghost')).toBe('@acme/ghost')
   })
 })

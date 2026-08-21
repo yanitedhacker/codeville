@@ -13,7 +13,8 @@ const PRUNE = new Set([
 ])
 
 /** Config files scan() drops but buildAtlas() reads first (aliases, repo name). */
-const KEEP_CONFIG = /^(tsconfig(\.\w+)?\.json|package\.json|jsconfig\.json)$/
+const KEEP_TSCONFIG = /^(tsconfig(\.\w+)?\.json|jsconfig\.json)$/
+const MAX_MANIFESTS = 200
 
 export interface ReadRepoResult {
   files: VirtualFile[]
@@ -84,8 +85,10 @@ export async function readRepo(root: string, maxFiles = 8000): Promise<ReadRepoR
 
   const takeFile = async (full: string, name: string, size: number): Promise<void> => {
     const rel = relative(root, full).split(sep).join('/')
-    const isConfig = KEEP_CONFIG.test(name) && rel.split('/').length <= 2
-    if (!isConfig && !isSource(rel)) return
+    const segs = rel.split('/').length
+    const keepTs = KEEP_TSCONFIG.test(name) && segs <= 2
+    const keepPkg = name === 'package.json'
+    if (!keepTs && !keepPkg && !isSource(rel)) return
     if (size > MAX_FILE_BYTES) {
       skipped++
       return
@@ -107,5 +110,16 @@ export async function readRepo(root: string, maxFiles = 8000): Promise<ReadRepoR
 
   await walk(root, 0)
   files.sort((a, b) => (a.path < b.path ? -1 : 1))
+  capPackageJson(files, MAX_MANIFESTS)
   return { files, skipped, truncated }
+}
+
+function capPackageJson(files: VirtualFile[], max: number): void {
+  const pkgs = files.filter((f) => /(^|\/)package\.json$/.test(f.path))
+  if (pkgs.length <= max) return
+  const keep = new Set(pkgs.slice(0, max).map((f) => f.path))
+  for (let i = files.length - 1; i >= 0; i--) {
+    const f = files[i]
+    if (f && /(^|\/)package\.json$/.test(f.path) && !keep.has(f.path)) files.splice(i, 1)
+  }
 }

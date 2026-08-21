@@ -8,5 +8,8 @@
     ".": "./src/index.ts",
     "./explain/*": "./src/explain/*.ts",
     "./*": "./src/*.ts"
+  },
+  "dependencies": {
+    "resolve.exports": "^2.0.3"
   }
 }

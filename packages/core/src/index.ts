@@ -1,7 +1,7 @@
 export * from './types.js'
 export { buildAtlas, type BuildAtlasOptions } from './atlas.js'
 export { scan, isIgnored, isSource, areaOf, excerptOf, MAX_FILE_BYTES, type ScanOptions } from './scan.js'
-export { createResolver, readTsconfigAliases, type Resolver, type ResolverOptions } from './resolve.js'
+export { createResolver, readTsconfigAliases, readWorkspacePackages, type Resolver, type ResolverOptions, type WorkspacePackage } from './resolve.js'
 export { classify, modalRole, type Role } from './classify.js'
 export { buildGraph, dirId, extId, DEFAULT_MAX_NODES, DEFAULT_ROLLUP_DEPTH, type GraphResult } from './graph.js'
 export { layout, mulberry32 } from './layout.js'

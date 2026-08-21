@@ -23,7 +23,8 @@ const SOURCE_EXT = new Set([
 
 const PRUNE = /(^|\/)(node_modules|\.git|\.next|dist|build|out|coverage|target|vendor|venv|\.venv|__pycache__|\.playwright-mcp|\.claude\/worktrees)\//
 
-const KEEP_CONFIG = /^[^/]*\/(tsconfig(\.\w+)?\.json|jsconfig\.json|package\.json)$/
+const KEEP_TSCONFIG = /^(tsconfig(\.\w+)?\.json|jsconfig\.json)$/
+const MAX_MANIFESTS = 200
 
 export interface GithubResult {
   repo: string
@@ -111,7 +112,11 @@ export function extract(archive: Buffer, repo: string, ref: string): GithubResul
 
     const dot = rel.lastIndexOf('.')
     const ext = dot < 0 ? '' : rel.slice(dot + 1).toLowerCase()
-    if (!SOURCE_EXT.has(ext) && !KEEP_CONFIG.test(entry.name)) return
+    const base = rel.slice(rel.lastIndexOf('/') + 1)
+    const depth = rel.split('/').length
+    const keepTs = KEEP_TSCONFIG.test(base) && depth <= 2
+    const keepPkg = base === 'package.json'
+    if (!SOURCE_EXT.has(ext) && !keepTs && !keepPkg) return
 
     if (files.length >= MAX_FILES || total + entry.size > MAX_TOTAL_BYTES) {
       truncated = true
@@ -122,7 +127,14 @@ export function extract(archive: Buffer, repo: string, ref: string): GithubResul
     total += entry.size
   })
 
-  return { repo, ref, files, truncated }
+  return { repo, ref, files: capPackageJson(files, MAX_MANIFESTS), truncated }
+}
+
+function capPackageJson<T extends { path: string }>(files: T[], max: number): T[] {
+  const pkgs = files.filter((f) => /(^|\/)package\.json$/.test(f.path)).sort((a, b) => (a.path < b.path ? -1 : 1))
+  if (pkgs.length <= max) return files
+  const keep = new Set(pkgs.slice(0, max).map((f) => f.path))
+  return files.filter((f) => !/(^|\/)package\.json$/.test(f.path) || keep.has(f.path))
 }
 
 export function gunzipArchive(archive: Buffer, maxOutputLength = MAX_GUNZIP_BYTES): Buffer {

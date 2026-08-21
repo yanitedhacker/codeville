@@ -1,12 +1,13 @@
 import { readRepo } from '../packages/cli/src/readdir.js'
-import { scan, createResolver, readTsconfigAliases } from '../packages/core/src/index.js'
+import { scan, createResolver, readTsconfigAliases, readWorkspacePackages } from '../packages/core/src/index.js'
 
 const root = process.argv[2] ?? process.cwd()
 const { files } = await readRepo(root)
 const records = scan(files)
 const ts = files.find((f) => f.path === 'tsconfig.json')
-const withAliases = createResolver(records, ts ? readTsconfigAliases(ts.text) : {})
-const noAliases = createResolver(records, {})
+const workspaces = readWorkspacePackages(files, new Set(records.map((r) => r.path)))
+const withAliases = createResolver(records, { ...(ts ? readTsconfigAliases(ts.text) : {}), workspaces })
+const noAliases = createResolver(records, { workspaces })
 
 let relTotal = 0
 let relResolved = 0
