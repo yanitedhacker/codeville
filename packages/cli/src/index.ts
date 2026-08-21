@@ -66,7 +66,7 @@ async function main(argv: string[]): Promise<void> {
 
 async function generate(args: GenerateArgs): Promise<void> {
   const t0 = Date.now()
-  const { files, skipped, truncated, omittedWorkspaces } = await readRepo(args.root)
+  const { files, skipped, truncated, omittedWorkspaces, omittedCargo } = await readRepo(args.root)
   if (files.length === 0) {
     const why: string[] = []
     if (skipped) why.push(`${skipped} over the 512KB cap`)
@@ -81,7 +81,10 @@ async function generate(args: GenerateArgs): Promise<void> {
   let atlas = buildAtlas(files, {
     exclude: args.exclude,
     ...(args.maxNodes !== undefined ? { maxNodes: args.maxNodes } : {}),
-    ...(omittedWorkspaces ? { omittedWorkspaces } : {}),
+    omitted: {
+      ...(omittedWorkspaces ? { npm: omittedWorkspaces } : {}),
+      ...(omittedCargo ? { cargo: omittedCargo } : {}),
+    },
   })
   if (truncated) atlas.repo.note += ' Input hit the file cap, so this slice is partial.'
   log(`atlas: ${atlas.stats.nodes} nodes · ${atlas.stats.links} links · ${atlas.stats.packages} packages`)

@@ -1,5 +1,5 @@
 export * from './types.js'
-export { buildAtlas, type BuildAtlasOptions } from './atlas.js'
+export { buildAtlas, type BuildAtlasOptions, type OmittedManifests } from './atlas.js'
 export { scan, isIgnored, isSource, areaOf, excerptOf, MAX_FILE_BYTES, type ScanOptions } from './scan.js'
 export { createResolver, readTsconfigAliases, readWorkspacePackages, readGoModules, readCargoCrates, type Resolver, type ResolverOptions, type WorkspacePackage, type CargoCrate } from './resolve.js'
 export { classify, modalRole, type Role } from './classify.js'
