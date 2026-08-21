@@ -1,0 +1,15 @@
+node_modules/
+dist/
+*.tsbuildinfo
+.DS_Store
+
+# Build artifact: the single-file export bundle.
+# Rebuild with `pnpm -F @codeville/atlas-ui build`.
+apps/web/public/standalone/
+
+# Generated atlases embed the source excerpts of whatever repo you point at.
+# Regenerate with `pnpm atlas <path>` rather than committing someone's codebase.
+atlases/
+
+# Explanation cache (lives in ~/.cache/codeville, but never commit a stray one).
+.codeville/

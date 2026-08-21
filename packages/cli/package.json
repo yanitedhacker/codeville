@@ -1,0 +1,8 @@
+{
+  "name": "@codeville/cli",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "bin": { "codeville": "./src/index.ts" },
+  "dependencies": { "@codeville/core": "workspace:*" }
+}

@@ -1,0 +1,21 @@
+{
+  "name": "codeville",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "engines": { "node": ">=20.19" },
+  "scripts": {
+    "dev": "pnpm -F @codeville/web dev",
+    "build": "pnpm -F @codeville/web build",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "atlas": "tsx packages/cli/src/index.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^22.14.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.8.2",
+    "vitest": "^3.2.4"
+  }
+}
