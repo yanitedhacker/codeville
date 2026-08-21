@@ -35,4 +35,4 @@ body:
     id: version
     attributes:
       label: Version
-      description: Commit SHA or `0.1.0`.
+      description: Commit SHA or `1.0.0`.

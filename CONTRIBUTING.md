@@ -24,6 +24,10 @@ The standalone page must stay offline: no fonts, no CDNs, no fetches. `embedJson
 
 Layout is deterministic. Same repo in, byte-identical atlas out (after stripping `repo.generatedAt`). Do not introduce `Math.random()` or `toLocaleString()` without `'en-US'`.
 
+## Changelog
+
+Every user-visible change gets a line under `## [Unreleased]` in [CHANGELOG.md](CHANGELOG.md). Release PRs move Unreleased into a dated version heading (Keep a Changelog: Added / Changed / Fixed / Removed). Do not skip the changelog for a user-visible fix.
+
 ## Tests
 
 ```bash
