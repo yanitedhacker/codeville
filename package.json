@@ -1,7 +1,7 @@
 {
   "name": "codeville",
   "private": true,
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Drop a repo. Get a city.",
   "license": "MIT",
   "type": "module",
