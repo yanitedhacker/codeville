@@ -97,16 +97,12 @@ export async function fetchRepo(input: string, refHint?: string): Promise<Github
   )
 }
 
-function extract(archive: Buffer, repo: string, ref: string): GithubResult {
+export function extract(archive: Buffer, repo: string, ref: string): GithubResult {
   const files: { path: string; text: string }[] = []
   let total = 0
   let truncated = false
 
   untar(gunzipArchive(archive), (entry) => {
-    if (files.length >= MAX_FILES || total >= MAX_TOTAL_BYTES) {
-      truncated = true
-      return
-    }
     // codeload prefixes every path with "<repo>-<sha>/"; strip it back to repo-relative.
     const slash = entry.name.indexOf('/')
     if (slash < 0) return
@@ -116,6 +112,11 @@ function extract(archive: Buffer, repo: string, ref: string): GithubResult {
     const dot = rel.lastIndexOf('.')
     const ext = dot < 0 ? '' : rel.slice(dot + 1).toLowerCase()
     if (!SOURCE_EXT.has(ext) && !KEEP_CONFIG.test(entry.name)) return
+
+    if (files.length >= MAX_FILES || total + entry.size > MAX_TOTAL_BYTES) {
+      truncated = true
+      return
+    }
 
     files.push({ path: rel, text: entry.data.toString('utf8') })
     total += entry.size

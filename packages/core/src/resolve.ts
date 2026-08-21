@@ -23,7 +23,8 @@ export function createResolver(files: FileRecord[], opts: ResolverOptions = {}):
   const aliases = Object.entries(opts.aliases ?? {})
   const base = (opts.baseUrl ?? '').replace(/^\.\/?|\/$/g, '')
 
-  const probe = (candidate: string): string | null => {
+  const probe = (candidate: string | null): string | null => {
+    if (!candidate) return null
     const p = normalizePath(candidate)
     if (!p) return null
     for (const ext of TRY_EXT) if (index.has(p + ext)) return p + ext
@@ -35,7 +36,7 @@ export function createResolver(files: FileRecord[], opts: ResolverOptions = {}):
     resolve(spec, fromDir) {
       if (spec.startsWith('.')) {
         const rel = spec.includes('/') ? spec : pythonRelative(spec)
-        return probe(join(fromDir, rel))
+        return probe(joinRepoPath(fromDir, rel))
       }
 
       for (const [pattern, targets] of aliases) {
@@ -43,7 +44,7 @@ export function createResolver(files: FileRecord[], opts: ResolverOptions = {}):
         const star = pattern.indexOf('*')
         if (star < 0) {
           for (const t of targets) {
-            const hit = probe(join(base, t))
+            const hit = probe(joinRepoPath(base, t))
             if (hit) return hit
           }
           continue
@@ -52,7 +53,7 @@ export function createResolver(files: FileRecord[], opts: ResolverOptions = {}):
         const tail = pattern.slice(star + 1)
         const rest = spec.slice(head.length, spec.length - tail.length)
         for (const t of targets) {
-          const hit = probe(join(base, t.replace('*', rest)))
+          const hit = probe(joinRepoPath(base, t.replace('*', rest)))
           if (hit) return hit
         }
       }
@@ -99,12 +100,15 @@ function pythonRelative(spec: string): string {
   return `${'../'.repeat(ups)}${rest}`
 }
 
-function join(dir: string, rel: string): string {
+/** Repo-relative join. Null if `..` would leave the virtual root. */
+export function joinRepoPath(dir: string, rel: string): string | null {
   const stack = dir ? dir.split('/') : []
   for (const part of rel.split('/')) {
     if (part === '' || part === '.') continue
-    if (part === '..') stack.pop()
-    else stack.push(part)
+    if (part === '..') {
+      if (stack.length === 0) return null
+      stack.pop()
+    } else stack.push(part)
   }
   return stack.join('/')
 }

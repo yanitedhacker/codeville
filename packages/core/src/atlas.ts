@@ -1,7 +1,7 @@
 import type { Atlas, BuildOptions, VirtualFile } from './types.js'
 import { parseJsonc } from './jsonc.js'
 import { scan, type ScanOptions } from './scan.js'
-import { createResolver, readTsconfigAliases, type ResolverOptions } from './resolve.js'
+import { createResolver, joinRepoPath, readTsconfigAliases, type ResolverOptions } from './resolve.js'
 import { buildGraph } from './graph.js'
 import { layout } from './layout.js'
 
@@ -102,6 +102,7 @@ function aliasesFromConfig(chosen: VirtualFile, files: VirtualFile[]): ResolverO
   const spec = typeof parsed?.extends === 'string' ? parsed.extends : null
   if (!spec) return child
   const parentPath = resolveExtends(chosen.path, spec)
+  if (!parentPath) return child
   const parent = files.find((f) => f.path === parentPath || f.path === `${parentPath}.json`)
   if (!parent) return child
   const base = readTsconfigAliases(parent.text)
@@ -111,10 +112,9 @@ function aliasesFromConfig(chosen: VirtualFile, files: VirtualFile[]): ResolverO
   }
 }
 
-function resolveExtends(fromPath: string, spec: string): string {
+function resolveExtends(fromPath: string, spec: string): string | null {
   const dir = fromPath.includes('/') ? fromPath.slice(0, fromPath.lastIndexOf('/')) : ''
-  const rel = spec.replace(/^\.\//, '')
-  return dir ? `${dir}/${rel}` : rel
+  return joinRepoPath(dir, spec)
 }
 
 /** Content-derived seed: the same file set always lays out identically. */

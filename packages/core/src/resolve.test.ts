@@ -76,6 +76,17 @@ describe('resolve', () => {
     expect(r.resolve('./nested/mod', 'lib')).toBe('lib/nested/mod.ts')
   })
 
+  it('returns null when a relative specifier walks off the repo root', () => {
+    const edge = createResolver(files('foo.ts', 'src/utils/mod.ts'))
+    expect(edge.resolve('../../../../foo', 'src/utils')).toBeNull()
+    expect(edge.resolve('../foo', '')).toBeNull()
+  })
+
+  it('still resolves a relative import that lands on a root file', () => {
+    const edge = createResolver(files('foo.ts', 'src/utils/mod.ts'))
+    expect(edge.resolve('../../foo', 'src/utils')).toBe('foo.ts')
+  })
+
   it('falls back to a directory index file', () => {
     expect(r.resolve('@/lib', 'app')).toBe('lib/index.ts')
   })

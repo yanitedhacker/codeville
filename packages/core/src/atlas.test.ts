@@ -180,6 +180,22 @@ describe('buildAtlas', () => {
     }
   })
 
+  it('follows extends through .. to a parent tsconfig', () => {
+    const files: VirtualFile[] = [
+      {
+        path: 'tsconfig.base.json',
+        text: '{ "compilerOptions": { "baseUrl": ".", "paths": { "@/*": ["./src/*"] } } }',
+      },
+      { path: 'apps/tsconfig.json', text: '{ "extends": "../tsconfig.base.json" }' },
+      { path: 'src/a.ts', text: 'export const a = 1\n' },
+      { path: 'src/b.ts', text: 'import { a } from "@/a"\nimport React from "react"\n' },
+    ]
+    const built = buildAtlas(files, { now: NOW })
+    expect(built.links.some((l) => l.type === 'import' && l.to === 'src/a.ts')).toBe(true)
+    expect(built.nodes.some((n) => n.id === extId('@/a') || n.path === '@/a')).toBe(false)
+    expect(built.nodes.filter((n) => n.kind === 'external').map((n) => n.label)).toEqual(['react'])
+  })
+
   it('folds colocated tests under src/lib into the src area', () => {
     const onlyTests: VirtualFile[] = Array.from({ length: 10 }, (_, i) => ({
       path: `src/lib/t${i}.test.ts`,
