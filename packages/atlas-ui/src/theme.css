@@ -131,6 +131,15 @@
   background: var(--sel);
 }
 
+.cv-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.cv-btn:disabled:hover {
+  background: transparent;
+}
+
 .cv-btn[data-on="true"] {
   background: var(--ink);
   color: var(--canvas);
@@ -204,6 +213,10 @@
 
 .cv-fn:focus {
   border-color: var(--muted-strong);
+}
+
+.cv-section > .cv-btn {
+  margin-top: 8px;
 }
 
 .cv-areas {
