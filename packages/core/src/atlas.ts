@@ -1,7 +1,7 @@
 import type { Atlas, BuildOptions, VirtualFile } from './types.js'
 import { parseJsonc } from './jsonc.js'
 import { scan, type ScanOptions } from './scan.js'
-import { createResolver, joinRepoPath, readTsconfigAliases, readWorkspacePackages, type ResolverOptions } from './resolve.js'
+import { createResolver, joinRepoPath, readGoModules, readTsconfigAliases, readWorkspacePackages, type ResolverOptions } from './resolve.js'
 import { buildGraph } from './graph.js'
 import { layout } from './layout.js'
 
@@ -17,6 +17,7 @@ export function buildAtlas(files: VirtualFile[], opts: BuildAtlasOptions = {}): 
   const resolver = createResolver(records, {
     ...(tsconfig ? aliasesFromConfig(tsconfig, files) : {}),
     workspaces,
+    goModules: readGoModules(files),
   })
   const graph = buildGraph(records, resolver, opts)
   const positioned = layout(graph.nodes, graph.links, graph.areas, seedFrom(records.map((r) => r.path)))

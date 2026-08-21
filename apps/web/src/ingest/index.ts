@@ -7,13 +7,14 @@ const MAX_FILE_BYTES = 512 * 1024
 const PRUNE = /(^|\/)(node_modules|\.git|\.next|dist|build|out|coverage|target|vendor|venv|\.venv|__pycache__|\.playwright-mcp|\.claude\/worktrees)\//
 const KEEP_TSCONFIG = /(^|\/)(tsconfig(\.\w+)?\.json|jsconfig\.json)$/
 const KEEP_PKG = /(^|\/)package\.json$/
+const KEEP_DEEP = /(^|\/)(package\.json|go\.mod)$/
 const MAX_MANIFESTS = 200
 
 /** Config files scan() drops but buildAtlas() reads first, so keep them near the root. */
 function wanted(path: string): boolean {
   if (PRUNE.test(path)) return false
   if (isSource(path)) return true
-  if (KEEP_PKG.test(path)) return true
+  if (KEEP_DEEP.test(path)) return true
   return KEEP_TSCONFIG.test(path) && path.split('/').length <= 2
 }
 

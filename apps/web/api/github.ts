@@ -115,7 +115,7 @@ export function extract(archive: Buffer, repo: string, ref: string): GithubResul
     const base = rel.slice(rel.lastIndexOf('/') + 1)
     const depth = rel.split('/').length
     const keepTs = KEEP_TSCONFIG.test(base) && depth <= 2
-    const keepPkg = base === 'package.json'
+    const keepPkg = base === 'package.json' || base === 'go.mod'
     if (!SOURCE_EXT.has(ext) && !keepTs && !keepPkg) return
 
     if (files.length >= MAX_FILES || total + entry.size > MAX_TOTAL_BYTES) {

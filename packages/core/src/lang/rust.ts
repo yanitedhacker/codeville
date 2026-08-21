@@ -9,10 +9,8 @@ export function extractRust(text: string): ImportRef[] {
   const seen = new Set<string>()
   for (const line of text.split('\n')) {
     const m = USE.exec(line) ?? MOD.exec(line)
-    let spec = m?.[1]
-    if (!spec) continue
-    spec = spec.split('::')[0] ?? spec
-    if (spec === 'self' || spec === 'super' || seen.has(spec)) continue
+    const spec = m?.[1]
+    if (!spec || seen.has(spec)) continue
     seen.add(spec)
     out.push({ spec, statement: normalize(line) })
   }

@@ -4,7 +4,7 @@ import { parseJsonc } from './jsonc.js'
 
 export interface Resolver {
   /** Returns a repo-relative file path, or null when the specifier is external. */
-  resolve(spec: string, fromDir: string): string | null
+  resolve(spec: string, fromDir: string, fromFile?: string): string | null
   /** Package name for an unresolved specifier, or null if it should be dropped. */
   externalName(spec: string): string | null
 }
@@ -37,6 +37,8 @@ export interface ResolverOptions {
   /** tsconfig baseUrl, repo-relative. */
   baseUrl?: string
   workspaces?: Record<string, WorkspacePackage>
+  /** go.mod `module` prefixes, longest first. */
+  goModules?: { prefix: string; dir: string }[]
 }
 
 export function createResolver(files: FileRecord[], opts: ResolverOptions = {}): Resolver {
@@ -44,11 +46,13 @@ export function createResolver(files: FileRecord[], opts: ResolverOptions = {}):
   const aliases = Object.entries(opts.aliases ?? {})
   const base = (opts.baseUrl ?? '').replace(/^\.\/?|\/$/g, '')
   const workspaces = opts.workspaces ?? {}
+  const goModules = opts.goModules ?? []
+  const goByDir = goFilesByDir(files)
 
   const probe = (candidate: string | null): string | null => probeFile(index, candidate)
 
   return {
-    resolve(spec, fromDir) {
+    resolve(spec, fromDir, fromFile) {
       if (spec.startsWith('.')) {
         const rel = spec.includes('/') ? spec : pythonRelative(spec)
         return probe(joinRepoPath(fromDir, rel))
@@ -91,11 +95,27 @@ export function createResolver(files: FileRecord[], opts: ResolverOptions = {}):
         if (hit) return hit
       }
 
-      // Python intra-package: "app.logger" -> "app/logger.py"
+      const rust = resolveRust(spec, fromFile, index)
+      if (rust) return rust
+
+      // Python intra-package: "app.logger" -> "app/logger.py". Trailing names
+      // from `from app.db import get_conn` walk back to the module file.
       if (spec.includes('.') && !spec.includes('/')) {
-        const hit = probe(spec.replace(/\./g, '/'))
+        const parts = spec.split('.')
+        for (let n = parts.length; n >= 1; n--) {
+          const hit = probe(parts.slice(0, n).join('/'))
+          if (hit) return hit
+        }
+      }
+
+      const go = matchGoModule(spec, goModules)
+      if (go) {
+        const rest = spec.slice(go.prefix.length).replace(/^\//, '')
+        const dir = rest ? joinRepoPath(go.dir, rest) : go.dir
+        const hit = dir !== null ? pickGoFile(dir, index, goByDir) : null
         if (hit) return hit
       }
+
       // Bare specifier that happens to name a real repo path (Go module subpaths, absolute imports).
       return probe(spec)
     },
@@ -105,11 +125,10 @@ export function createResolver(files: FileRecord[], opts: ResolverOptions = {}):
       if (aliases.some(([p]) => matchesAlias(spec, p))) return null
       const clean = spec.replace(/^node:/, '')
       if (!clean) return null
-      const name = packageHead(clean)
+      const name = externalLabel(clean)
       if (!name) return null
-      if (workspaces[name]) return null
-      // Python/Rust dotted or crate roots collapse to the first segment.
-      return name.split('.')[0] || null
+      if (workspaces[packageHead(clean)] || workspaces[name]) return null
+      return name
     },
   }
 }
@@ -154,6 +173,146 @@ function normalizePath(p: string): string {
 function packageHead(spec: string): string {
   const parts = spec.split('/')
   return spec.startsWith('@') ? parts.slice(0, 2).join('/') : (parts[0] ?? '')
+}
+
+function externalLabel(spec: string): string | null {
+  if (spec.includes('::')) {
+    const first = spec.split('::')[0] ?? ''
+    if (first === 'crate' || first === 'self' || first === 'super') return null
+    return first || null
+  }
+  if (!spec.includes('/')) {
+    if (spec === 'crate' || spec === 'self' || spec === 'super') return null
+    return spec.split('.')[0] || null
+  }
+  const parts = spec.split('/')
+  const first = parts[0] ?? ''
+  if (first.includes('.')) return parts.slice(0, 3).join('/')
+  return spec.startsWith('@') ? parts.slice(0, 2).join('/') : first
+}
+
+function goFilesByDir(files: FileRecord[]): Map<string, string[]> {
+  const map = new Map<string, string[]>()
+  for (const f of files) {
+    if (f.ext !== 'go') continue
+    const list = map.get(f.dir)
+    if (list) list.push(f.path)
+    else map.set(f.dir, [f.path])
+  }
+  for (const list of map.values()) list.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
+  return map
+}
+
+function matchGoModule(spec: string, modules: { prefix: string; dir: string }[]): { prefix: string; dir: string } | null {
+  for (const m of modules) {
+    if (spec === m.prefix || spec.startsWith(m.prefix + '/')) return m
+  }
+  return null
+}
+
+function pickGoFile(dir: string, index: Set<string>, goByDir: Map<string, string[]>): string | null {
+  const name = dir.includes('/') ? dir.slice(dir.lastIndexOf('/') + 1) : dir
+  if (name) {
+    const named = `${dir}/${name}.go`
+    if (index.has(named)) return named
+  }
+  const list = goByDir.get(dir) ?? []
+  const prod = list.filter((p) => !p.endsWith('_test.go'))
+  return (prod.length ? prod : list)[0] ?? null
+}
+
+function fileDir(path: string): string {
+  const slash = path.lastIndexOf('/')
+  return slash < 0 ? '' : path.slice(0, slash)
+}
+
+function fileName(path: string): string {
+  const slash = path.lastIndexOf('/')
+  return slash < 0 ? path : path.slice(slash + 1)
+}
+
+function crateRootDir(index: Set<string>, fromFile: string | undefined): string | null {
+  let dir = fromFile ? fileDir(fromFile) : ''
+  for (;;) {
+    if (index.has(dir ? `${dir}/lib.rs` : 'lib.rs') || index.has(dir ? `${dir}/main.rs` : 'main.rs')) return dir
+    if (!dir) break
+    dir = fileDir(dir)
+  }
+  for (const p of ['src/lib.rs', 'src/main.rs', 'lib.rs', 'main.rs']) {
+    if (index.has(p)) return fileDir(p)
+  }
+  return null
+}
+
+function rustSelfDir(fromFile: string): string | null {
+  if (!fromFile) return null
+  const dir = fileDir(fromFile)
+  const name = fileName(fromFile)
+  if (name === 'lib.rs' || name === 'main.rs' || name === 'mod.rs') return dir
+  const stem = name.replace(/\.rs$/, '')
+  return dir ? `${dir}/${stem}` : stem
+}
+
+function rustPath(root: string | null, segs: string[], index: Set<string>): string | null {
+  if (root === null || segs.length === 0) return null
+  const last = segs.length > 1 ? segs.length - 1 : segs.length
+  for (let n = last; n >= 1; n--) {
+    const rel = segs.slice(0, n).join('/')
+    const base = root ? `${root}/${rel}` : rel
+    if (index.has(base + '.rs')) return base + '.rs'
+    if (index.has(base + '/mod.rs')) return base + '/mod.rs'
+  }
+  return null
+}
+
+function rustModFile(fromFile: string, name: string, index: Set<string>): string | null {
+  // #[path = "..."] attributes are out of scope.
+  const dir = fileDir(fromFile)
+  const file = fileName(fromFile)
+  const search =
+    file === 'lib.rs' || file === 'main.rs' || file === 'mod.rs'
+      ? dir
+      : dir
+        ? `${dir}/${file.replace(/\.rs$/, '')}`
+        : file.replace(/\.rs$/, '')
+  const rs = search ? `${search}/${name}.rs` : `${name}.rs`
+  const mod = search ? `${search}/${name}/mod.rs` : `${name}/mod.rs`
+  if (index.has(rs)) return rs
+  if (index.has(mod)) return mod
+  return null
+}
+
+function resolveRust(spec: string, fromFile: string | undefined, index: Set<string>): string | null {
+  if (spec.includes('::')) {
+    const segs = spec.split('::').filter(Boolean)
+    const head = segs[0]
+    const rest = segs.slice(1)
+    if (head === 'crate') return rustPath(crateRootDir(index, fromFile), rest, index)
+    if (!fromFile) return null
+    if (head === 'self') return rustPath(rustSelfDir(fromFile), rest, index)
+    if (head === 'super') {
+      const self = rustSelfDir(fromFile)
+      if (self === null || self === '') return rustPath('', rest, index)
+      return rustPath(fileDir(self), rest, index)
+    }
+    return null
+  }
+  if (fromFile?.endsWith('.rs') && /^[A-Za-z_]\w*$/.test(spec)) return rustModFile(fromFile, spec, index)
+  return null
+}
+
+/** First `module` line of each go.mod, longest prefix first so nested modules win. */
+export function readGoModules(files: { path: string; text: string }[]): { prefix: string; dir: string }[] {
+  const out: { prefix: string; dir: string }[] = []
+  for (const f of files) {
+    if (!/(^|\/)go\.mod$/.test(f.path)) continue
+    const m = /^module\s+(\S+)/m.exec(f.text)
+    if (!m?.[1]) continue
+    const dir = f.path.includes('/') ? f.path.slice(0, f.path.lastIndexOf('/')) : ''
+    out.push({ prefix: m[1], dir })
+  }
+  out.sort((a, b) => b.prefix.length - a.prefix.length || (a.dir < b.dir ? -1 : a.dir > b.dir ? 1 : 0))
+  return out
 }
 
 function probeFile(index: Set<string>, candidate: string | null): string | null {

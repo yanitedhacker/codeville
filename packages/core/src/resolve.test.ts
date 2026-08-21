@@ -248,3 +248,34 @@ describe('workspace packages', () => {
     expect(r.externalName('@acme/ghost')).toBe('@acme/ghost')
   })
 })
+
+describe('externalName', () => {
+  const r = createResolver(files('src/a.ts'))
+
+  it('keeps host-qualified Go import paths', () => {
+    expect(r.externalName('github.com/gin-gonic/gin')).toBe('github.com/gin-gonic/gin')
+    expect(r.externalName('github.com/spf13/cobra')).toBe('github.com/spf13/cobra')
+    expect(r.externalName('golang.org/x/sync/errgroup')).toBe('golang.org/x/sync')
+    expect(r.externalName('gopkg.in/yaml.v3')).toBe('gopkg.in/yaml.v3')
+  })
+
+  it('collapses Python dotted names and Rust :: paths to their first segment', () => {
+    expect(r.externalName('os.path')).toBe('os')
+    expect(r.externalName('std::collections')).toBe('std')
+  })
+
+  it('still names npm packages by their package head', () => {
+    expect(r.externalName('react')).toBe('react')
+    expect(r.externalName('@scope/pkg')).toBe('@scope/pkg')
+  })
+
+  it('never emits crate, self, or super as packages', () => {
+    expect(r.externalName('crate')).toBeNull()
+    expect(r.externalName('crate::graph::Node')).toBeNull()
+    expect(r.externalName('self::x')).toBeNull()
+    expect(r.externalName('super::graph')).toBeNull()
+    expect(r.externalName('std')).toBe('std')
+    expect(r.externalName('core')).toBe('core')
+    expect(r.externalName('alloc')).toBe('alloc')
+  })
+})

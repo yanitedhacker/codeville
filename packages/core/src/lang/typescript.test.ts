@@ -52,11 +52,16 @@ describe('typescript imports', () => {
 describe('python imports', () => {
   it('reads both statement forms', () => {
     const text = 'from collections import deque\nimport logging\nfrom .local import thing\n'
-    expect(specs('app/logger.py', text)).toEqual(['collections', 'logging', '.local'])
+    expect(specs('app/logger.py', text)).toEqual(['collections', 'collections.deque', 'logging', '.local', '.local.thing'])
   })
 
   it('keeps leading dots on relative specs', () => {
-    expect(specs('pkg/a.py', 'from .mod import thing\nfrom ..pkg.sub import x\n')).toEqual(['.mod', '..pkg.sub'])
+    expect(specs('pkg/a.py', 'from .mod import thing\nfrom ..pkg.sub import x\n')).toEqual([
+      '.mod',
+      '.mod.thing',
+      '..pkg.sub',
+      '..pkg.sub.x',
+    ])
   })
 })
 
@@ -68,9 +73,9 @@ describe('go imports', () => {
 })
 
 describe('rust imports', () => {
-  it('takes the crate root and skips self/super', () => {
+  it('keeps the whole path including self and super', () => {
     const text = 'use std::io::Read;\nuse self::helper;\npub use serde::Serialize;\nmod util;\n'
-    expect(specs('main.rs', text)).toEqual(['std', 'serde', 'util'])
+    expect(specs('main.rs', text)).toEqual(['std::io::Read', 'self::helper', 'serde::Serialize', 'util'])
   })
 })
 

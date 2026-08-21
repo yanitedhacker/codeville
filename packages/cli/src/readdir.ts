@@ -87,7 +87,7 @@ export async function readRepo(root: string, maxFiles = 8000): Promise<ReadRepoR
     const rel = relative(root, full).split(sep).join('/')
     const segs = rel.split('/').length
     const keepTs = KEEP_TSCONFIG.test(name) && segs <= 2
-    const keepPkg = name === 'package.json'
+    const keepPkg = name === 'package.json' || name === 'go.mod'
     if (!keepTs && !keepPkg && !isSource(rel)) return
     if (size > MAX_FILE_BYTES) {
       skipped++
