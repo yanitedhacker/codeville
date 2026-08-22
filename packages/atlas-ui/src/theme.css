@@ -44,6 +44,11 @@
   box-sizing: border-box;
 }
 
+.cv-root :is(button, input, a):focus-visible {
+  outline: 1px solid var(--ink);
+  outline-offset: 2px;
+}
+
 .cv-label {
   font-size: 8.5px;
   letter-spacing: 0.11em;
@@ -149,6 +154,11 @@
   background: #2c2f1d;
 }
 
+.cv-actions .cv-btn[aria-pressed="true"] {
+  background: var(--ink);
+  color: var(--canvas);
+}
+
 /* ---- left rail --------------------------------------------------------- */
 
 .cv-rail {
@@ -192,6 +202,60 @@
 
 .cv-filter:focus {
   border-color: var(--muted-strong);
+}
+
+.cv-search-results {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0 14px 12px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.cv-search-results > .cv-label {
+  padding: 0 0 4px;
+}
+
+.cv-search-result {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  width: 100%;
+  padding: 6px 8px;
+  font: inherit;
+  font-size: 10.5px;
+  color: var(--ink);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  text-align: left;
+  word-break: break-all;
+}
+
+.cv-search-result:hover {
+  background: rgba(204, 207, 178, 0.5);
+}
+
+.cv-coverage {
+  margin: 8px 14px 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--rule);
+}
+
+.cv-coverage-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 3px 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.cv-coverage-empty {
+  margin: 8px 0 0;
+  font-size: 10px;
+  line-height: 1.6;
+  color: var(--muted-strong);
 }
 
 .cv-fn {
@@ -534,6 +598,21 @@
 .cv-list-sub {
   font-size: 9px;
   color: var(--muted);
+}
+
+.cv-evidence {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.cv-evidence li {
+  padding: 4px 0;
+}
+
+.cv-evidence-loc {
+  font-size: 10.5px;
+  word-break: break-all;
 }
 
 .cv-bullet {

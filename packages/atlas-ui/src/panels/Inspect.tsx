@@ -320,7 +320,7 @@ function LinkDoes({ atlas, link, onSelect }: { atlas: Atlas; link: AtlasLink; on
           <p className="cv-summary">{describeLink(link, from, to)}</p>
         </section>
       )}
-      <SampleBlock samples={link.samples} />
+      <SampleBlock link={link} />
     </>
   )
 }
@@ -329,7 +329,7 @@ function LinkBuilt({ atlas, link, onSelect }: { atlas: Atlas; link: AtlasLink; o
   return (
     <>
       <LinkIdentity atlas={atlas} link={link} onSelect={onSelect} />
-      <SampleBlock samples={link.samples} />
+      <SampleBlock link={link} />
     </>
   )
 }
@@ -354,6 +354,7 @@ function LinkIdentity({
         {fromPath} → {toPath}
       </h2>
       <span className="cv-chip">{link.type}</span>
+      <LinkEvidence link={link} />
       <p className="cv-summary">Click an endpoint to inspect that block. That replaces the current selection.</p>
       <section className="cv-section">
         <span className="cv-label">Endpoints</span>
@@ -363,12 +364,48 @@ function LinkIdentity({
   )
 }
 
-function SampleBlock({ samples }: { samples: string[] }) {
-  if (samples.length === 0) return null
+function LinkEvidence({ link }: { link: AtlasLink }) {
+  if (link.type === 'containment') {
+    return <p className="cv-summary">Structural projection; no source import evidence.</p>
+  }
+  const evidence = link.evidence ?? []
+  const observations = link.observations ?? 0
+  const chip = link.confidence === 'heuristic' ? 'Heuristic' : link.confidence === 'exact' ? 'Exact' : 'Unknown'
+  return (
+    <>
+      <span className="cv-chip">{chip}</span>
+      <p className="cv-summary">
+        {observations.toLocaleString('en-US')} {observations === 1 ? 'observation' : 'observations'}
+      </p>
+      {evidence.length > 0 && (
+        <ul className="cv-evidence">
+          {evidence.map((ev) => (
+            <li key={`${ev.path}:${ev.startLine}-${ev.endLine}:${ev.specifier}:${ev.extractor}`}>
+              <div className="cv-evidence-loc">{`${ev.path}:${ev.startLine}-${ev.endLine}`}</div>
+              <div className="cv-list-sub">{ev.extractor}</div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </>
+  )
+}
+
+function SampleBlock({ link }: { link: AtlasLink }) {
+  if (link.type === 'containment') {
+    return (
+      <section className="cv-section">
+        <p className="cv-summary">Structural projection; no source import evidence.</p>
+      </section>
+    )
+  }
+  const evidence = link.evidence ?? []
+  const statements = evidence.length > 0 ? evidence.map((ev) => ev.statement) : link.samples
+  if (statements.length === 0) return null
   return (
     <section className="cv-section">
-      <span className="cv-label">{samples.length === 1 ? 'Sample' : 'Samples'}</span>
-      {samples.map((s) => (
+      <span className="cv-label">{statements.length === 1 ? 'Sample' : 'Samples'}</span>
+      {statements.map((s) => (
         <pre className="cv-code" key={s}>
           {s}
         </pre>

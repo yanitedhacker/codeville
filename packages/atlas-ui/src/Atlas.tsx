@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { Atlas as AtlasData, AtlasLink, AtlasNode } from '@codeville/core'
+import type { Atlas as AtlasData, AtlasLink, AtlasNode, LayoutMode } from '@codeville/core'
 import { AtlasRenderer, subLabel } from './renderer.js'
 import { Header } from './panels/Header.js'
 import { SystemMap } from './panels/SystemMap.js'
@@ -30,11 +30,14 @@ export function Atlas({ atlas, caption = 'Local source atlas / read-only project
   const [hovered, setHovered] = useState<string | null>(null)
   const [activeArea, setActiveArea] = useState<string | null>(null)
   const [filter, setFilter] = useState('')
+  const [layoutMode, setLayoutMode] = useState<LayoutMode>('city')
   const [flowing, setFlowing] = useState(true)
   const [tab, setTab] = useState<Tab>('does')
   const [tip, setTip] = useState<Tip | null>(null)
 
   const byId = useMemo(() => new Map(atlas.nodes.map((n) => [n.id, n])), [atlas])
+  const layoutModeRef = useRef(layoutMode)
+  layoutModeRef.current = layoutMode
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -60,6 +63,7 @@ export function Atlas({ atlas, caption = 'Local source atlas / read-only project
         setSelected(link ? [link.from, link.to] : [])
       },
     })
+    renderer.setLayout(layoutModeRef.current)
     rendererRef.current = renderer
 
     const observer = new ResizeObserver(([entry]) => {
@@ -87,6 +91,11 @@ export function Atlas({ atlas, caption = 'Local source atlas / read-only project
     rendererRef.current?.focusNode(id)
   }, [])
 
+  const onLayout = useCallback((mode: LayoutMode) => {
+    setLayoutMode(mode)
+    rendererRef.current?.setLayout(mode)
+  }, [])
+
   const target = useMemo((): InspectTarget => {
     if (hovered) {
       const node = byId.get(hovered)
@@ -103,6 +112,8 @@ export function Atlas({ atlas, caption = 'Local source atlas / read-only project
     <div className="cv-root">
       <Header
         atlas={atlas}
+        layoutMode={layoutMode}
+        onLayout={onLayout}
         flowing={flowing}
         onToggleFlow={() => setFlowing((v) => !v)}
         onTrace={() => {
@@ -124,6 +135,7 @@ export function Atlas({ atlas, caption = 'Local source atlas / read-only project
         filter={filter}
         onArea={setActiveArea}
         onFilter={setFilter}
+        onSelect={selectFromList}
       />
 
       <div className="cv-stage" ref={stageRef}>
@@ -133,6 +145,7 @@ export function Atlas({ atlas, caption = 'Local source atlas / read-only project
           <div className="cv-stage-top">
             <div className="cv-stage-title">
               <span className="cv-label">The codebase</span>
+              <span className="cv-label">{layoutMode === 'city' ? 'Filesystem projection' : 'Dependency projection'}</span>
               <span className="cv-label">Drag to pan / scroll to zoom / Shift-click to add</span>
             </div>
             <span className="cv-label">{flowing ? 'Flow active' : 'Flow paused'}</span>
