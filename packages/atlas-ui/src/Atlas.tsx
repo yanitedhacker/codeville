@@ -163,6 +163,7 @@ export function Atlas({ atlas, caption = 'Local source atlas / read-only project
           role="img"
           tabIndex={0}
           aria-label="Interactive codebase map. Use arrow keys to pan, plus and minus to zoom, and zero to reset. Use the system map search for an accessible file list."
+          aria-describedby="cv-canvas-help"
           onKeyDown={onCanvasKeyDown}
         />
 
@@ -171,7 +172,9 @@ export function Atlas({ atlas, caption = 'Local source atlas / read-only project
             <div className="cv-stage-title">
               <span className="cv-label">The codebase</span>
               <span className="cv-label">{layoutMode === 'city' ? 'Filesystem projection' : 'Dependency projection'}</span>
-              <span className="cv-label">Drag to pan / scroll to zoom / Shift-click to add</span>
+              <span className="cv-label" id="cv-canvas-help">
+                Drag or arrow keys to pan / scroll or + - to zoom / 0 to reset / Shift-click to add
+              </span>
             </div>
             <span className="cv-label">{flowing ? 'Flow active' : 'Flow paused'}</span>
           </div>
