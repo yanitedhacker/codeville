@@ -121,11 +121,16 @@ function placeExternals(nodes: AtlasNode[]): void {
   })
 }
 
-/** Center on the local graph, then park externals outside the final local radius. */
+/**
+ * Center locals, park externals outside that radius, then recenter local plus
+ * external (bbox → origin) and round. Distances from the local centroid are
+ * unchanged by the final translation.
+ */
 function finalize(nodes: AtlasNode[]): AtlasNode[] {
   if (nodes.length === 0) return nodes
   recenterLocals(nodes)
   placeExternals(nodes)
+  shiftByBbox(nodes)
   for (const n of nodes) {
     n.x = Math.round(n.x * 1000) / 1000
     n.y = Math.round(n.y * 1000) / 1000
@@ -149,6 +154,22 @@ function recenterLocals(nodes: AtlasNode[]): void {
   const cy = (minY + maxY) / 2
   for (const n of nodes) {
     if (n.kind === 'external') continue
+    n.x -= cx
+    n.y -= cy
+  }
+}
+
+function shiftByBbox(nodes: AtlasNode[]): void {
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity
+  for (const n of nodes) {
+    if (n.x < minX) minX = n.x
+    if (n.x > maxX) maxX = n.x
+    if (n.y < minY) minY = n.y
+    if (n.y > maxY) maxY = n.y
+  }
+  const cx = (minX + maxX) / 2
+  const cy = (minY + maxY) / 2
+  for (const n of nodes) {
     n.x -= cx
     n.y -= cy
   }
