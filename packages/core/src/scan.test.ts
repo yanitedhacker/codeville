@@ -72,7 +72,16 @@ describe('scan', () => {
     const [db] = records
     expect(db?.lines).toBe(2)
     expect(db?.area).toBe('lib')
-    expect(db?.imports).toEqual([{ spec: 'pg', statement: 'import { Pool } from "pg"' }])
+    expect(db?.imports).toEqual([{
+      spec: 'pg',
+      statement: 'import { Pool } from "pg"',
+      kind: 'static',
+      startLine: 1,
+      endLine: 1,
+      extractor: 'babel',
+      confidence: 'exact',
+    }])
+    expect(db?.extraction).toEqual({ mode: 'exact', extractor: 'babel', diagnostics: [] })
   })
 
   it('returns records sorted by path, so downstream output is stable', () => {
@@ -81,5 +90,32 @@ describe('scan', () => {
       { path: 'a.ts', text: 'x' },
     ])
     expect(records.map((r) => r.path)).toEqual(['a.ts', 'b.ts'])
+  })
+
+  it('records a TypeScript file with no imports as exact', () => {
+    const [file] = scan([{ path: 'empty.ts', text: 'export const x = 1\n' }])
+    expect(file?.imports).toEqual([])
+    expect(file?.extraction).toEqual({ mode: 'exact', extractor: 'babel', diagnostics: [] })
+  })
+
+  it('records an SFC as heuristic', () => {
+    const [file] = scan([{ path: 'App.vue', text: "import x from './x'\n" }])
+    expect(file?.extraction.mode).toBe('heuristic')
+    expect(file?.extraction.extractor).toBe('typescript-line-scanner')
+    expect(file?.imports.map((fact) => fact.spec)).toEqual(['./x'])
+  })
+
+  it('records a Java file as unsupported', () => {
+    const [file] = scan([{ path: 'Main.java', text: 'import java.util.List;\nclass Main {}\n' }])
+    expect(file?.imports).toEqual([])
+    expect(file?.extraction).toEqual({ mode: 'unsupported', extractor: null, diagnostics: [] })
+  })
+
+  it('reports heuristic fallback with one diagnostic for malformed TypeScript', () => {
+    const [file] = scan([{ path: 'broken.ts', text: "import x from './x'\nconst =\n" }])
+    expect(file?.imports.map((fact) => fact.spec)).toEqual(['./x'])
+    expect(file?.extraction.mode).toBe('heuristic')
+    expect(file?.extraction.extractor).toBe('typescript-line-scanner')
+    expect(file?.extraction.diagnostics).toHaveLength(1)
   })
 })

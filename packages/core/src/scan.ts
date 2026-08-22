@@ -1,5 +1,5 @@
 import type { FileRecord, VirtualFile } from './types.js'
-import { extractImports } from './lang/index.js'
+import { extractDependencies } from './lang/index.js'
 import { outline } from './outline.js'
 
 const IGNORED_DIRS = new Set([
@@ -78,6 +78,7 @@ export function scan(files: VirtualFile[], opts: ScanOptions = {}): FileRecord[]
     const name = path.slice(slash + 1)
     const dot = name.lastIndexOf('.')
     const symbols = outline(f.text)
+    const extracted = extractDependencies(path, f.text)
     out.push({
       path,
       dir: slash < 0 ? '' : path.slice(0, slash),
@@ -87,7 +88,8 @@ export function scan(files: VirtualFile[], opts: ScanOptions = {}): FileRecord[]
       lines: countLines(f.text),
       bytes,
       excerpt: excerptOf(f.text),
-      imports: extractImports(path, f.text),
+      imports: extracted.imports,
+      extraction: extracted.report,
       ...(symbols.length ? { symbols } : {}),
     })
   }

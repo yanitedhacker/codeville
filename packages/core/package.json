@@ -10,6 +10,7 @@
     "./*": "./src/*.ts"
   },
   "dependencies": {
+    "@babel/parser": "7.29.8",
     "resolve.exports": "^2.0.3"
   }
 }
