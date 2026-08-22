@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { createResolver, readTsconfigAliases, readWorkspacePackages } from './resolve.js'
 import { parseJsonc, stripJsonc } from './jsonc.js'
+import { scan } from './scan.js'
 import type { FileRecord } from './types.js'
 
 const files = (...paths: string[]): FileRecord[] =>
@@ -278,5 +279,37 @@ describe('externalName', () => {
     expect(r.externalName('std')).toBe('std')
     expect(r.externalName('core')).toBe('core')
     expect(r.externalName('alloc')).toBe('alloc')
+  })
+})
+
+describe('resolveImport', () => {
+  it('classifies internal, external, system, and unresolved imports', () => {
+    const records = scan([
+      { path: 'src/a.ts', text: 'export const a = 1' },
+      { path: 'src/main.ts', text: '' },
+    ])
+    const resolver = createResolver(records, { aliases: { '@/*': ['./src/*'] } })
+    expect(resolver.resolveImport('./a', 'src', 'src/main.ts')).toEqual({ kind: 'internal', path: 'src/a.ts' })
+    expect(resolver.resolveImport('react', 'src', 'src/main.ts')).toEqual({ kind: 'external', name: 'react' })
+    expect(resolver.resolveImport('node:path', 'src', 'src/main.ts')).toEqual({ kind: 'system', name: 'path' })
+    expect(resolver.resolveImport('fs', 'src', 'src/main.ts')).toEqual({ kind: 'system', name: 'fs' })
+    expect(resolver.resolveImport('./missing', 'src', 'src/main.ts')).toEqual({ kind: 'unresolved', spec: './missing' })
+    expect(resolver.resolveImport('@/missing', 'src', 'src/main.ts')).toEqual({ kind: 'unresolved', spec: '@/missing' })
+  })
+
+  it('keeps a Python import named path external', () => {
+    const records = scan([{ path: 'app/main.py', text: '' }])
+    const resolver = createResolver(records)
+    expect(resolver.resolveImport('path', 'app', 'app/main.py')).toEqual({ kind: 'external', name: 'path' })
+  })
+
+  it('classifies Go net/http and Rust std::io::Read as system', () => {
+    const records = scan([
+      { path: 'main.go', text: 'package main\n' },
+      { path: 'src/lib.rs', text: '' },
+    ])
+    const resolver = createResolver(records)
+    expect(resolver.resolveImport('net/http', '', 'main.go')).toEqual({ kind: 'system', name: 'net' })
+    expect(resolver.resolveImport('std::io::Read', 'src', 'src/lib.rs')).toEqual({ kind: 'system', name: 'std' })
   })
 })
