@@ -741,31 +741,38 @@
   }
 
   .cv-label,
-  .cv-btn,
-  .cv-tab,
   .cv-rail-head strong,
   .cv-inspect-head strong,
   .cv-chip {
     font-size: 10px;
   }
 
-  .cv-btn,
-  .cv-area,
-  .cv-search-result {
+  .cv-root .cv-btn,
+  .cv-root .cv-tab,
+  .cv-root .cv-area,
+  .cv-root .cv-search-result,
+  .cv-root .cv-empty,
+  .cv-root .cv-summary,
+  .cv-root .cv-list,
+  .cv-root .cv-list button,
+  .cv-root .cv-list-sub,
+  .cv-root .cv-coverage-row,
+  .cv-root .cv-note,
+  .cv-root .cv-coverage-empty {
+    font-size: 11px;
+  }
+
+  .cv-root .cv-btn,
+  .cv-root .cv-tab,
+  .cv-root .cv-area,
+  .cv-root .cv-search-result {
     min-height: 44px;
   }
 
-  .cv-empty,
-  .cv-summary,
-  .cv-list,
-  .cv-list button,
-  .cv-list-sub,
-  .cv-search-result,
-  .cv-area,
-  .cv-coverage-row,
-  .cv-note,
-  .cv-coverage-empty {
-    font-size: 11px;
+  .cv-root .cv-tab {
+    display: inline-flex;
+    align-items: center;
+    padding: 10px 8px 8px;
   }
 
   .cv-actions {
@@ -810,7 +817,7 @@
   }
 
   .cv-footer button {
-    font-size: 10px;
+    font-size: 11px;
     min-height: 44px;
   }
 }
