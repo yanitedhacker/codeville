@@ -9,7 +9,7 @@ describe('go imports', () => {
 })
 
 describe('go module resolution', () => {
-  it('resolves both fixture edges and leaves fmt as the only external', () => {
+  it('resolves both fixture edges and treats fmt as a system import', () => {
     const atlas = buildAtlas(
       [
         { path: 'go.mod', text: 'module example.com/svc\n\ngo 1.22\n' },
@@ -22,7 +22,7 @@ describe('go module resolution', () => {
     const got = new Set(atlas.links.filter((l) => l.type === 'import').map((l) => l.from + ' -> ' + l.to))
     expect(got.has('main.go -> internal/store/store.go')).toBe(true)
     expect(got.has('internal/store/store.go -> internal/model/model.go')).toBe(true)
-    expect(atlas.nodes.filter((n) => n.kind === 'external').map((n) => n.label).sort()).toEqual(['fmt'])
+    expect(atlas.nodes.filter((n) => n.kind === 'external').map((n) => n.label).sort()).toEqual([])
   })
 
   it('lets a nested go.mod take precedence for paths under it', () => {

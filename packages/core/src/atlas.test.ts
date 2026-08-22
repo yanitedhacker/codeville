@@ -80,6 +80,32 @@ describe('buildAtlas', () => {
   it('carries the literal import statement on the edge as the packet payload', () => {
     const edge = atlas.links.find((l) => l.from === 'middleware.ts' && l.to === 'lib/session.ts')
     expect(edge?.samples).toContain('import { getSession } from "@/lib/session"')
+    expect(edge).toEqual(
+      expect.objectContaining({
+        confidence: 'exact',
+        observations: 1,
+        evidence: [
+          expect.objectContaining({
+            path: 'middleware.ts',
+            startLine: 1,
+            endLine: 1,
+            extractor: 'babel',
+            confidence: 'exact',
+          }),
+        ],
+      }),
+    )
+  })
+
+  it('accounts for every import fact in a resolution bucket', () => {
+    const { coverage } = atlas
+    expect(
+      coverage.internalFacts +
+        coverage.externalFacts +
+        coverage.systemFacts +
+        coverage.unresolvedFacts +
+        coverage.ignoredFacts,
+    ).toBe(coverage.importFacts)
   })
 
   it('counts fan-in and fan-out without letting containment inflate them', () => {

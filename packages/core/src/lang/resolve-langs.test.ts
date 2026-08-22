@@ -33,7 +33,7 @@ const cases: Case[] = [
       ['main.go', 'internal/store/store.go'],
       ['internal/store/store.go', 'internal/model/model.go'],
     ],
-    externals: ['fmt'],
+    externals: [],
   },
   {
     name: 'Rust crate',
@@ -49,7 +49,7 @@ const cases: Case[] = [
       ['src/graph.rs', 'src/types.rs'],
       ['src/layout.rs', 'src/graph.rs'],
     ],
-    externals: ['std'],
+    externals: [],
   },
 ]
 

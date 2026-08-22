@@ -23,6 +23,14 @@ const FIXTURE: VirtualFile[] = [
   { path: 'packages/app/src/Component.tsx', text: 'export const Comp = 1\n' },
   { path: 'packages/app/src/feature/index.ts', text: 'export const feat = 1\n' },
   { path: 'packages/lib/src/index.ts', text: 'export const util = 1\n' },
+  {
+    path: 'packages/app/src/generic.ts',
+    text: "export function hitLink<T extends Pick<AtlasLink, 'from' | 'to' | 'type'>>(link: T) {}",
+  },
+  {
+    path: 'packages/app/src/system.ts',
+    text: "import fs from 'node:fs'\nimport path from 'path'\nimport x from './missing.js'",
+  },
 ]
 
 describe('resolution fidelity', () => {
@@ -67,5 +75,13 @@ describe('resolution fidelity', () => {
     const a = JSON.stringify(buildAtlas(FIXTURE, { now: NOW, rollupDepth: 8 }))
     const b = JSON.stringify(buildAtlas(FIXTURE, { now: NOW, rollupDepth: 8 }))
     expect(a).toBe(b)
+  })
+
+  it('does not invent packages from generics or Node builtins, and every visible edge has evidence', () => {
+    expect(atlas.nodes.some((node) => node.kind === 'external' && node.label === ' | ')).toBe(false)
+    expect(atlas.nodes.some((node) => node.kind === 'external' && ['fs', 'path'].includes(node.label))).toBe(false)
+    expect(atlas.coverage.systemFacts).toBe(2)
+    expect(atlas.coverage.unresolvedFacts).toBe(1)
+    expect(atlas.links.filter((link) => link.type !== 'containment').every((link) => (link.evidence?.length ?? 0) > 0)).toBe(true)
   })
 })
