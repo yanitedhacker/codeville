@@ -142,6 +142,7 @@ describe('layoutDependency', () => {
     const cy = placed.reduce((s, n) => s + n.y, 0) / placed.length
     expect(Math.abs(cx)).toBeLessThan(6)
     expect(Math.abs(cy)).toBeLessThan(6)
+    expectBboxCentered(placed)
   })
 
   it('pushes packages outside the local areas', () => {
@@ -155,37 +156,58 @@ describe('layoutDependency', () => {
     expect(meanExternal).toBeGreaterThan(meanLocal)
   })
 
-  it('keeps every external outside the maximum local radius', () => {
+  it('keeps every external farther from the local centroid than the farthest local', () => {
     const city = layoutCity(NODES, [], AREAS, 7)
-    expectExternalsOutsideLocals(layoutDependency(city, [], 7))
+    expectExternalsOutsideLocalCentroid(layoutDependency(city, [], 7))
   })
 
-  it('keeps one or two externals outside a skewed local graph', () => {
-    const locals = Array.from({ length: 8 }, (_, i) => node(`a${i}`, 'app', 50 + i * 40))
+  it('keeps one or two externals farther from the local centroid than the farthest local', () => {
     for (const count of [1, 2]) {
-      const externals = Array.from({ length: count }, (_, i) => ({
-        ...node(`pkg${i}`, 'dependencies', 0),
-        kind: 'external' as const,
-      }))
-      const areas: AtlasArea[] = [
-        { id: 'app', label: 'app', color: '#2A4A38', count: locals.length },
-        { id: 'dependencies', label: 'dependencies', color: '#56825F', count },
-      ]
-      const city = layoutCity([...locals, ...externals], [], areas, 7)
-      expectExternalsOutsideLocals(layoutDependency(city, [], 7))
+      const placed = layoutSkewedDependency(count)
+      expectExternalsOutsideLocalCentroid(placed)
+      expectBboxCentered(placed)
     }
   })
 })
 
-function expectExternalsOutsideLocals(placed: AtlasNode[]): void {
-  const radius = (n: AtlasNode): number => Math.hypot(n.x, n.y)
+function layoutSkewedDependency(externalCount: number): AtlasNode[] {
+  const locals = Array.from({ length: 8 }, (_, i) => node(`a${i}`, 'app', 50 + i * 40))
+  const externals = Array.from({ length: externalCount }, (_, i) => ({
+    ...node(`pkg${i}`, 'dependencies', 0),
+    kind: 'external' as const,
+  }))
+  const areas: AtlasArea[] = [
+    { id: 'app', label: 'app', color: '#2A4A38', count: locals.length },
+    { id: 'dependencies', label: 'dependencies', color: '#56825F', count: externalCount },
+  ]
+  const city = layoutCity([...locals, ...externals], [], areas, 7)
+  return layoutDependency(city, [], 7)
+}
+
+/** Spec: every external is farther from the local centroid than the farthest local. */
+function expectExternalsOutsideLocalCentroid(placed: AtlasNode[]): void {
   const local = placed.filter((n) => n.kind !== 'external')
   const external = placed.filter((n) => n.kind === 'external')
-  const maxLocal = Math.max(...local.map(radius))
+  const cx = local.reduce((s, n) => s + n.x, 0) / local.length
+  const cy = local.reduce((s, n) => s + n.y, 0) / local.length
+  const dist = (n: AtlasNode): number => Math.hypot(n.x - cx, n.y - cy)
+  const maxLocal = Math.max(...local.map(dist))
   expect(external.length).toBeGreaterThan(0)
   for (const n of external) {
-    expect(radius(n)).toBeGreaterThan(maxLocal)
+    expect(dist(n)).toBeGreaterThan(maxLocal)
   }
+}
+
+function expectBboxCentered(placed: AtlasNode[]): void {
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity
+  for (const n of placed) {
+    if (n.x < minX) minX = n.x
+    if (n.x > maxX) maxX = n.x
+    if (n.y < minY) minY = n.y
+    if (n.y > maxY) maxY = n.y
+  }
+  expect(Math.abs((minX + maxX) / 2)).toBeLessThan(0.002)
+  expect(Math.abs((minY + maxY) / 2)).toBeLessThan(0.002)
 }
 
 describe('mulberry32', () => {
