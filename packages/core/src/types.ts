@@ -60,6 +60,31 @@ export interface Atlas {
   links: AtlasLink[]
 }
 
+export type ExtractionMode = 'exact' | 'heuristic' | 'unsupported' | 'failed'
+export type ImportKind = 'static' | 'dynamic' | 'require' | 'reexport'
+export type EvidenceConfidence = 'exact' | 'heuristic'
+
+export interface SourceEvidence {
+  path: string
+  startLine: number
+  endLine: number
+  specifier: string
+  statement: string
+  extractor: string
+  confidence: EvidenceConfidence
+}
+
+export interface ExtractionReport {
+  mode: ExtractionMode
+  extractor: string | null
+  diagnostics: string[]
+}
+
+export interface ExtractionResult {
+  imports: ImportRef[]
+  report: ExtractionReport
+}
+
 /** A scanned source file plus everything derived from its bytes. */
 export interface FileRecord {
   path: string
@@ -71,6 +96,7 @@ export interface FileRecord {
   bytes: number
   excerpt: string[]
   imports: ImportRef[]
+  extraction: ExtractionReport
   /** Outline names, capped at 60. Omitted when the file declares none. */
   symbols?: string[]
 }
@@ -80,6 +106,11 @@ export interface ImportRef {
   spec: string
   /** The whole statement text, trimmed. This is the packet payload. */
   statement: string
+  kind: ImportKind
+  startLine: number
+  endLine: number
+  extractor: string
+  confidence: EvidenceConfidence
 }
 
 export interface BuildOptions {

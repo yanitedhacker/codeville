@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { extractImports } from './index.js'
+import { extractDependencies, extractImports } from './index.js'
 
 const specs = (path: string, text: string): string[] => extractImports(path, text).map((i) => i.spec)
 
@@ -30,8 +30,42 @@ describe('typescript imports', () => {
     expect(imp?.statement).toBe('import { Pool } from "pg"')
   })
 
-  it('deduplicates repeat specifiers', () => {
-    expect(specs('x.ts', 'import a from "pg"\nimport b from "pg"')).toEqual(['pg'])
+  it('deduplicates repeat specifiers by first source occurrence', () => {
+    const facts = extractImports('x.ts', 'import a from "pg"\nimport b from "pg"')
+    expect(facts).toHaveLength(1)
+    expect(facts[0]).toMatchObject({ spec: 'pg', startLine: 1, endLine: 1 })
+  })
+
+  it('does not turn a TypeScript generic declaration into an import', () => {
+    const text = "export function hitLink<T extends Pick<AtlasLink, 'from' | 'to' | 'type'>>(link: T) {}"
+    expect(extractImports('iso.ts', text)).toEqual([])
+  })
+
+  it('extracts ESM, reexports, dynamic imports, require, and TS import equals', () => {
+    const text = [
+      "import x from './x.js'",
+      "export { y } from './y.js'",
+      "export * from './z.js'",
+      "const lazy = import('./lazy.js')",
+      "const legacy = require('legacy')",
+      "import fs = require('node:fs')",
+    ].join('\n')
+    expect(extractImports('x.ts', text).map((fact) => [fact.spec, fact.kind, fact.confidence])).toEqual([
+      ['./x.js', 'static', 'exact'],
+      ['./y.js', 'reexport', 'exact'],
+      ['./z.js', 'reexport', 'exact'],
+      ['./lazy.js', 'dynamic', 'exact'],
+      ['legacy', 'require', 'heuristic'],
+      ['node:fs', 'require', 'exact'],
+    ])
+  })
+
+  it('falls back explicitly on a syntax error', () => {
+    const result = extractDependencies('broken.ts', "import x from './x'\nconst =")
+    expect(result.imports.map((fact) => fact.spec)).toEqual(['./x'])
+    expect(result.report.mode).toBe('heuristic')
+    expect(result.report.extractor).toBe('typescript-line-scanner')
+    expect(result.report.diagnostics).toHaveLength(1)
   })
 
   it('ignores identifiers that merely start with import, and commented-out imports', () => {

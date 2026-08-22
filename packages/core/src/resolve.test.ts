@@ -14,6 +14,7 @@ const files = (...paths: string[]): FileRecord[] =>
     bytes: 1,
     excerpt: [],
     imports: [],
+    extraction: { mode: 'unsupported', extractor: null, diagnostics: [] },
   }))
 
 // Shoppie's real tsconfig: the `@/*` -> `./*` pair next to `**/*.ts` in `include`

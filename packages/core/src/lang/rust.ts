@@ -10,11 +10,19 @@ export function extractRust(text: string): ImportRef[] {
   const out: ImportRef[] = []
   const seen = new Set<string>()
   const lines = text.split('\n')
-  const push = (spec: string, statement: string): void => {
+  const push = (spec: string, statement: string, startLine: number, endLine: number): void => {
     if (!spec || spec === '*' || seen.has(spec)) return
     if (!/^[A-Za-z_][\w]*(?:::[A-Za-z_][\w]*)*$/.test(spec)) return
     seen.add(spec)
-    out.push({ spec, statement: normalize(statement) })
+    out.push({
+      spec,
+      statement: normalize(statement),
+      kind: 'static',
+      startLine,
+      endLine,
+      extractor: 'rust-line-scanner',
+      confidence: 'heuristic',
+    })
   }
 
   for (let i = 0; i < lines.length; i++) {
@@ -24,15 +32,16 @@ export function extractRust(text: string): ImportRef[] {
 
     const mod = MOD.exec(line)
     if (mod?.[1]) {
-      push(`self::${mod[1]}`, line)
+      push(`self::${mod[1]}`, line, i + 1, i + 1)
       continue
     }
 
     if (!USE_HEAD.test(line)) continue
+    const useStart = i
     const joined = joinBalanced(lines, i, '{', '}', 40, '//')
     i = joined.end
     const body = joined.text.replace(USE_HEAD, '').replace(/;\s*$/, '').trim()
-    for (const spec of expandRustUse(body)) push(spec, joined.text)
+    for (const spec of expandRustUse(body)) push(spec, joined.text, useStart + 1, joined.end + 1)
   }
   return out
 }
