@@ -1,12 +1,21 @@
 import * as resolveExports from 'resolve.exports'
 import type { FileRecord } from './types.js'
 import { parseJsonc } from './jsonc.js'
+import { classifySystemImport } from './lang/system.js'
+
+export type ImportResolution =
+  | { kind: 'internal'; path: string }
+  | { kind: 'external'; name: string }
+  | { kind: 'system'; name: string }
+  | { kind: 'unresolved'; spec: string }
+  | { kind: 'ignored'; reason: string }
 
 export interface Resolver {
   /** Returns a repo-relative file path, or null when the specifier is external. */
   resolve(spec: string, fromDir: string, fromFile?: string): string | null
   /** Package name for an unresolved specifier, or null if it should be dropped. */
   externalName(spec: string, fromFile?: string): string | null
+  resolveImport(spec: string, fromDir: string, fromFile?: string): ImportResolution
 }
 
 const RUST_STD = new Set(['std', 'core', 'alloc', 'proc_macro', 'test'])
@@ -66,94 +75,110 @@ export function createResolver(files: FileRecord[], opts: ResolverOptions = {}):
 
   const probe = (candidate: string | null): string | null => probeFile(index, candidate)
 
-  return {
-    resolve(spec, fromDir, fromFile) {
-      if (spec.startsWith('.')) {
-        const rel = spec.includes('/') ? spec : pythonRelative(spec)
-        return probe(joinRepoPath(fromDir, rel))
-      }
+  const resolveInternal = (spec: string, fromDir: string, fromFile?: string): string | null => {
+    if (spec.startsWith('.')) {
+      const rel = spec.includes('/') ? spec : pythonRelative(spec)
+      return probe(joinRepoPath(fromDir, rel))
+    }
 
-      for (const [pattern, targets] of aliases) {
-        if (!matchesAlias(spec, pattern)) continue
-        const star = pattern.indexOf('*')
-        if (star < 0) {
-          for (const t of targets) {
-            const hit = probe(joinRepoPath(base, t))
-            if (hit) return hit
-          }
-          continue
-        }
-        const head = pattern.slice(0, star)
-        const tail = pattern.slice(star + 1)
-        const rest = spec.slice(head.length, spec.length - tail.length)
+    for (const [pattern, targets] of aliases) {
+      if (!matchesAlias(spec, pattern)) continue
+      const star = pattern.indexOf('*')
+      if (star < 0) {
         for (const t of targets) {
-          const hit = probe(joinRepoPath(base, t.replace('*', rest)))
+          const hit = probe(joinRepoPath(base, t))
+          if (hit) return hit
+        }
+        continue
+      }
+      const head = pattern.slice(0, star)
+      const tail = pattern.slice(star + 1)
+      const rest = spec.slice(head.length, spec.length - tail.length)
+      for (const t of targets) {
+        const hit = probe(joinRepoPath(base, t.replace('*', rest)))
+        if (hit) return hit
+      }
+    }
+
+    const exact = workspaces[spec]
+    if (exact) return exact.entry
+
+    const head = packageHead(spec)
+    const ws = head ? workspaces[head] : undefined
+    if (ws && spec !== head) {
+      const rest = spec.slice(head.length + 1)
+      const mapped = resolveExportsTarget(ws.manifest, './' + rest)
+      if (mapped) {
+        for (const m of mapped) {
+          const hit = probe(joinRepoPath(ws.dir, m))
           if (hit) return hit
         }
       }
+      const hit = probe(joinRepoPath(ws.dir, 'src/' + rest)) ?? probe(joinRepoPath(ws.dir, rest))
+      if (hit) return hit
+    }
 
-      const exact = workspaces[spec]
-      if (exact) return exact.entry
+    const rust = resolveRust(spec, fromFile, index, cargoCrates)
+    if (rust) return rust
 
-      const head = packageHead(spec)
-      const ws = head ? workspaces[head] : undefined
-      if (ws && spec !== head) {
-        const rest = spec.slice(head.length + 1)
-        const mapped = resolveExportsTarget(ws.manifest, './' + rest)
-        if (mapped) {
-          for (const m of mapped) {
-            const hit = probe(joinRepoPath(ws.dir, m))
-            if (hit) return hit
-          }
-        }
-        const hit = probe(joinRepoPath(ws.dir, 'src/' + rest)) ?? probe(joinRepoPath(ws.dir, rest))
+    // Python intra-package: "app.logger" -> "app/logger.py". Trailing names
+    // from `from app.db import get_conn` walk back to the module file.
+    if (spec.includes('.') && !spec.includes('/')) {
+      const parts = spec.split('.')
+      for (let n = parts.length; n >= 1; n--) {
+        const hit = probe(parts.slice(0, n).join('/'))
         if (hit) return hit
       }
+    }
 
-      const rust = resolveRust(spec, fromFile, index, cargoCrates)
-      if (rust) return rust
+    const go = matchGoModule(spec, goModules)
+    if (go) {
+      const rest = spec.slice(go.prefix.length).replace(/^\//, '')
+      const dir = rest ? joinRepoPath(go.dir, rest) : go.dir
+      const hit = dir !== null ? pickGoFile(dir, index, goByDir) : null
+      if (hit) return hit
+    }
 
-      // Python intra-package: "app.logger" -> "app/logger.py". Trailing names
-      // from `from app.db import get_conn` walk back to the module file.
-      if (spec.includes('.') && !spec.includes('/')) {
-        const parts = spec.split('.')
-        for (let n = parts.length; n >= 1; n--) {
-          const hit = probe(parts.slice(0, n).join('/'))
-          if (hit) return hit
-        }
+    // Bare specifier that happens to name a real repo path (Go module subpaths, absolute imports).
+    return probe(spec)
+  }
+
+  const externalFor = (spec: string, fromFile?: string): string | null => {
+    if (spec.startsWith('.') || spec.startsWith('/')) return null
+    if (aliases.some(([p]) => matchesAlias(spec, p))) return null
+    const clean = spec.replace(/^node:/, '')
+    if (!clean) return null
+    const name = externalLabel(clean)
+    if (!name) return null
+    if (workspaces[packageHead(clean)] || workspaces[name]) return null
+    const rustName = name.replace(/-/g, '_')
+    if (cargoCrates[rustName]) return null
+    if (
+      fromFile?.endsWith('.rs') &&
+      /^[A-Za-z_]\w*$/.test(clean) &&
+      !RUST_STD.has(rustName) &&
+      !cargoDeps?.has(rustName)
+    ) {
+      return null
+    }
+    return name
+  }
+
+  return {
+    resolve: resolveInternal,
+    externalName: externalFor,
+    resolveImport(spec, fromDir, fromFile) {
+      const internal = resolveInternal(spec, fromDir, fromFile)
+      if (internal) return { kind: 'internal', path: internal }
+      const system = classifySystemImport(spec, fromFile)
+      if (system) return { kind: 'system', name: system }
+      if (spec.startsWith('.') || spec.startsWith('/') || aliases.some(([pattern]) => matchesAlias(spec, pattern))) {
+        return { kind: 'unresolved', spec }
       }
-
-      const go = matchGoModule(spec, goModules)
-      if (go) {
-        const rest = spec.slice(go.prefix.length).replace(/^\//, '')
-        const dir = rest ? joinRepoPath(go.dir, rest) : go.dir
-        const hit = dir !== null ? pickGoFile(dir, index, goByDir) : null
-        if (hit) return hit
-      }
-
-      // Bare specifier that happens to name a real repo path (Go module subpaths, absolute imports).
-      return probe(spec)
-    },
-
-    externalName(spec, fromFile) {
-      if (spec.startsWith('.') || spec.startsWith('/')) return null
-      if (aliases.some(([p]) => matchesAlias(spec, p))) return null
-      const clean = spec.replace(/^node:/, '')
-      if (!clean) return null
-      const name = externalLabel(clean)
-      if (!name) return null
-      if (workspaces[packageHead(clean)] || workspaces[name]) return null
-      const rustName = name.replace(/-/g, '_')
-      if (cargoCrates[rustName]) return null
-      if (
-        fromFile?.endsWith('.rs') &&
-        /^[A-Za-z_]\w*$/.test(clean) &&
-        !RUST_STD.has(rustName) &&
-        !cargoDeps?.has(rustName)
-      ) {
-        return null
-      }
-      return name
+      const external = externalFor(spec, fromFile)
+      return external
+        ? { kind: 'external', name: external }
+        : { kind: 'ignored', reason: 'not a package or resolvable repository path' }
     },
   }
 }
