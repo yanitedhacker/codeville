@@ -10,6 +10,7 @@ packages/core/       analyzer — pure TS, no DOM, runs in the browser and in no
   classify.ts          path → role ("api endpoint", "service logic", …)
   graph.ts             nodes, links, areas, rollup, evidence, coverage
   layout.ts            deterministic seeded City layout — never Math.random
+  layout-dependency.ts dependency layout — import springs, weaker containment
   explain/             Explainer interface + heuristic and AI adapters
 packages/atlas-ui/   renderer — canvas2d + React, also builds the export bundle
 packages/cli/        the codeville command
@@ -79,7 +80,7 @@ Every visible import or external link carries `observations`, `confidence`, and 
 
 City geometry is filesystem and package spatial memory: area discs, phyllotaxis file placement, and an outer package ring. Dependency geometry is import-derived proximity: files that import each other sit closer than files that only share a folder.
 
-`AtlasNode.x`, `y`, and `h` remain the City defaults so older JSON still renders. The atlas contract also names a `dependency` layout mode on `AtlasNode.positions`. The renderer still reads City coordinates. The UI does not yet expose a City / Dependencies control.
+`AtlasNode.x`, `y`, and `h` remain the City defaults so older JSON still renders. `AtlasNode.positions` stores both `city` and `dependency`. The renderer reads `node.positions?.[mode]` when switching layouts (`packages/atlas-ui/src/renderer.ts`). The header exposes a City / Dependencies control (`packages/atlas-ui/src/panels/Header.tsx`). Switching rebuilds the canvas from the stored projection; it does not recompute layout.
 
 ## Projection
 
@@ -87,7 +88,9 @@ Standard 30° isometric: `sx = (x - y)·cos30`, `sy = (x + y)·sin30 - z`. Paint
 
 ## Layout
 
-Deterministic by construction: seeded PRNG, fixed iteration count, stable sort keys, coordinates rounded. The same repo produces a byte-identical atlas every time, which `layout.test.ts` and `atlas.test.ts` both pin. Areas get discs on a ring, files fill each disc on a phyllotaxis spiral, packages ring the outside, then a short repulsion relax runs.
+**City** — Deterministic by construction: seeded PRNG, fixed iteration count, stable sort keys, coordinates rounded. The same repo produces a byte-identical atlas every time, which `layout.test.ts` and `atlas.test.ts` both pin. Areas get discs on a ring, files fill each disc on a phyllotaxis spiral, packages ring the outside, then a short repulsion relax runs.
+
+**Dependency** — Same determinism guarantees (`packages/core/src/layout-dependency.ts`): seeded PRNG, fixed iteration count, stable sort keys, rounded coordinates. Import and external springs pull related nodes together; containment is weaker than City. Externals sit outside the local cluster: each external is farther from the local centroid than the farthest local. After placement, locals and externals are bbox-shifted so the combined map is centered.
 
 ## Rendering
 
