@@ -24,20 +24,23 @@ export function Header({ atlas, layoutMode, flowing, onLayout, onToggleFlow, onT
 
   return (
     <header className="cv-header">
-      <div className="cv-repo">
-        <span className="cv-label">Repository</span>
-        <span className="cv-repo-name" title={atlas.repo.name}>{atlas.repo.name}</span>
-      </div>
-      <div className="cv-stats">
-        {cells.map(([value, label]) => (
-          <div className="cv-stat" key={label}>
-            <span className="cv-stat-value">{value}</span>
-            <span className="cv-label">{label}</span>
-          </div>
-        ))}
+      <div className="cv-header-primary">
+        <div className="cv-repo">
+          <span className="cv-label">Repository</span>
+          <span className="cv-repo-name" title={atlas.repo.name}>{atlas.repo.name}</span>
+        </div>
+        <div className="cv-stats">
+          {cells.map(([value, label]) => (
+            <div className="cv-stat" key={label}>
+              <span className="cv-stat-value">{value}</span>
+              <span className="cv-label">{label}</span>
+            </div>
+          ))}
+        </div>
       </div>
       <div className="cv-actions">
         <button
+          type="button"
           className="cv-btn"
           data-on={layoutMode === 'city'}
           aria-pressed={layoutMode === 'city'}
@@ -46,6 +49,7 @@ export function Header({ atlas, layoutMode, flowing, onLayout, onToggleFlow, onT
           City
         </button>
         <button
+          type="button"
           className="cv-btn"
           data-on={layoutMode === 'dependency'}
           aria-pressed={layoutMode === 'dependency'}
@@ -53,11 +57,11 @@ export function Header({ atlas, layoutMode, flowing, onLayout, onToggleFlow, onT
         >
           Dependencies
         </button>
-        <button className="cv-btn" data-on={flowing} onClick={onToggleFlow}>
+        <button type="button" className="cv-btn" data-on={flowing} onClick={onToggleFlow}>
           {flowing ? 'Pause flow' : 'Resume the flow'}
         </button>
-        <button className="cv-btn" onClick={onTrace}>Trace one step</button>
-        <button className="cv-btn" onClick={onReset}>Reset view</button>
+        <button type="button" className="cv-btn" onClick={onTrace}>Trace one step</button>
+        <button type="button" className="cv-btn" onClick={onReset}>Reset view</button>
       </div>
     </header>
   )

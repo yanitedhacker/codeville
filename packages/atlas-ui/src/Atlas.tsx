@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import type { Atlas as AtlasData, AtlasLink, AtlasNode, LayoutMode } from '@codeville/core'
+import { canvasCommand, startsFlowing } from './keyboard.js'
 import { AtlasRenderer, subLabel } from './renderer.js'
 import { Header } from './panels/Header.js'
 import { SystemMap } from './panels/SystemMap.js'
@@ -31,7 +32,13 @@ export function Atlas({ atlas, caption = 'Local source atlas / read-only project
   const [activeArea, setActiveArea] = useState<string | null>(null)
   const [filter, setFilter] = useState('')
   const [layoutMode, setLayoutMode] = useState<LayoutMode>('city')
-  const [flowing, setFlowing] = useState(true)
+  const [flowing, setFlowing] = useState(() =>
+    startsFlowing(
+      typeof window === 'undefined'
+        ? false
+        : window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false,
+    ),
+  )
   const [tab, setTab] = useState<Tab>('does')
   const [tip, setTip] = useState<Tip | null>(null)
 
@@ -96,6 +103,17 @@ export function Atlas({ atlas, caption = 'Local source atlas / read-only project
     rendererRef.current?.setLayout(mode)
   }, [])
 
+  const onCanvasKeyDown = useCallback((e: KeyboardEvent<HTMLCanvasElement>) => {
+    const command = canvasCommand(e.key)
+    if (!command) return
+    e.preventDefault()
+    const renderer = rendererRef.current
+    if (!renderer) return
+    if (command.kind === 'pan') renderer.panBy(command.x, command.y)
+    else if (command.kind === 'zoom') renderer.zoomBy(command.factor)
+    else renderer.resetView()
+  }, [])
+
   const target = useMemo((): InspectTarget => {
     if (hovered) {
       const node = byId.get(hovered)
@@ -139,7 +157,14 @@ export function Atlas({ atlas, caption = 'Local source atlas / read-only project
       />
 
       <div className="cv-stage" ref={stageRef}>
-        <canvas className="cv-canvas" ref={canvasRef} />
+        <canvas
+          className="cv-canvas"
+          ref={canvasRef}
+          role="img"
+          tabIndex={0}
+          aria-label="Interactive codebase map. Use arrow keys to pan, plus and minus to zoom, and zero to reset. Use the system map search for an accessible file list."
+          onKeyDown={onCanvasKeyDown}
+        />
 
         <div className="cv-stage-overlay">
           <div className="cv-stage-top">
