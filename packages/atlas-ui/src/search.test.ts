@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { searchNodes } from './search.js'
+import { searchMatchCount, searchNodes } from './search.js'
 
 const make = (id: string, role: string, symbols: string[] = []) => ({
   id,
@@ -38,5 +38,13 @@ describe('searchNodes', () => {
   it('matches roles and symbols and caps output', () => {
     expect(searchNodes(nodes, 'session', 1)).toHaveLength(1)
     expect(searchNodes(nodes, 'api').map((node) => node.path)).toEqual(['app/api/login/route.ts'])
+  })
+
+  it('reports the true match count while capping returned nodes', () => {
+    const many = Array.from({ length: 60 }, (_, i) =>
+      make(`src/file-${String(i).padStart(2, '0')}.ts`, 'service logic'),
+    )
+    expect(searchMatchCount(many, 'src')).toBe(60)
+    expect(searchNodes(many, 'src')).toHaveLength(50)
   })
 })

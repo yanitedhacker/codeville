@@ -1,6 +1,14 @@
 import type { AtlasNode } from '@codeville/core'
 
 export function searchNodes(nodes: AtlasNode[], query: string, limit = 50): AtlasNode[] {
+  return rankedMatches(nodes, query).slice(0, limit)
+}
+
+export function searchMatchCount(nodes: AtlasNode[], query: string): number {
+  return rankedMatches(nodes, query).length
+}
+
+function rankedMatches(nodes: AtlasNode[], query: string): AtlasNode[] {
   const q = query.trim().toLowerCase()
   if (!q) return []
 
@@ -10,7 +18,7 @@ export function searchNodes(nodes: AtlasNode[], query: string, limit = 50): Atla
     if (score != null) scored.push({ node, score })
   }
   scored.sort((a, b) => a.score - b.score || (a.node.path < b.node.path ? -1 : a.node.path > b.node.path ? 1 : 0))
-  return scored.slice(0, limit).map((row) => row.node)
+  return scored.map((row) => row.node)
 }
 
 function scoreNode(node: AtlasNode, q: string): number | null {

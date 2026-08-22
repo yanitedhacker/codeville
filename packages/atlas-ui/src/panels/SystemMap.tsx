@@ -1,5 +1,5 @@
 import type { Atlas } from '@codeville/core'
-import { searchNodes } from '../search.js'
+import { searchMatchCount, searchNodes } from '../search.js'
 
 interface Props {
   atlas: Atlas
@@ -13,6 +13,7 @@ interface Props {
 export function SystemMap({ atlas, activeArea, filter, onArea, onFilter, onSelect }: Props) {
   const total = atlas.nodes.length
   const querying = filter.trim() !== ''
+  const matchCount = querying ? searchMatchCount(atlas.nodes, filter) : 0
   const results = querying ? searchNodes(atlas.nodes, filter) : []
   const coverage = atlas.coverage
   const rows: [string, number][] = [
@@ -42,7 +43,7 @@ export function SystemMap({ atlas, activeArea, filter, onArea, onFilter, onSelec
 
       {querying && (
         <div className="cv-search-results">
-          <span className="cv-label">{results.length.toLocaleString('en-US')} results</span>
+          <span className="cv-label">{matchCount.toLocaleString('en-US')} results</span>
           {results.map((node) => (
             <button key={node.id} className="cv-search-result" onClick={() => onSelect(node.id)}>
               {node.path}
