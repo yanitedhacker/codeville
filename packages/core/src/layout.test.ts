@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { layout, mulberry32 } from './layout.js'
+import { layout, layoutCity, mulberry32 } from './layout.js'
+import { layoutDependency } from './layout-dependency.js'
 import type { AtlasArea, AtlasNode } from './types.js'
 
 type Placed = Omit<AtlasNode, 'x' | 'y' | 'h'>
@@ -90,6 +91,68 @@ describe('layout', () => {
 
   it('survives an empty graph', () => {
     expect(layout([], [], [], 1)).toEqual([])
+  })
+})
+
+describe('layoutDependency', () => {
+  it('places linked nodes closer than an unlinked control pair', () => {
+    const nodes = [
+      node('a', 'src'),
+      node('b', 'src'),
+      node('c', 'src'),
+      node('d', 'src'),
+    ]
+    const links = [
+      { from: 'a', to: 'b', type: 'import' as const, samples: [], evidence: [], observations: 1, confidence: 'exact' as const },
+      { from: 'b', to: 'c', type: 'import' as const, samples: [], evidence: [], observations: 1, confidence: 'exact' as const },
+    ]
+    const city = layoutCity(nodes, links, [{ id: 'src', label: 'src', color: '#000', count: 4 }], 17)
+    const dependency = layoutDependency(city, links, 17)
+    const byId = new Map(dependency.map((item) => [item.id, item]))
+    const distance = (left: string, right: string) => {
+      const a = byId.get(left)!
+      const b = byId.get(right)!
+      return Math.hypot(a.x - b.x, a.y - b.y)
+    }
+    expect((distance('a', 'b') + distance('b', 'c')) / 2).toBeLessThan(distance('a', 'd'))
+  })
+
+  it('is deterministic: same input, byte-identical coordinates', () => {
+    const city = layoutCity(NODES, [], AREAS, 1234)
+    const a = layoutDependency(city, [], 1234)
+    const b = layoutDependency(city, [], 1234)
+    expect(JSON.stringify(a)).toBe(JSON.stringify(b))
+  })
+
+  it('does not mutate the caller-supplied nodes', () => {
+    const city = layoutCity(NODES, [], AREAS, 1234)
+    const before = JSON.stringify(city)
+    layoutDependency(city, [], 1234)
+    expect(JSON.stringify(city)).toBe(before)
+  })
+
+  it('places every node at a finite, centred position', () => {
+    const city = layoutCity(NODES, [], AREAS, 7)
+    const placed = layoutDependency(city, [], 7)
+    expect(placed).toHaveLength(NODES.length)
+    for (const n of placed) {
+      expect(Number.isFinite(n.x) && Number.isFinite(n.y) && Number.isFinite(n.h)).toBe(true)
+    }
+    const cx = placed.reduce((s, n) => s + n.x, 0) / placed.length
+    const cy = placed.reduce((s, n) => s + n.y, 0) / placed.length
+    expect(Math.abs(cx)).toBeLessThan(6)
+    expect(Math.abs(cy)).toBeLessThan(6)
+  })
+
+  it('pushes packages outside the local areas', () => {
+    const city = layoutCity(NODES, [], AREAS, 7)
+    const placed = layoutDependency(city, [], 7)
+    const radius = (n: AtlasNode): number => Math.hypot(n.x, n.y)
+    const local = placed.filter((n) => n.kind !== 'external')
+    const external = placed.filter((n) => n.kind === 'external')
+    const meanLocal = local.reduce((s, n) => s + radius(n), 0) / local.length
+    const meanExternal = external.reduce((s, n) => s + radius(n), 0) / external.length
+    expect(meanExternal).toBeGreaterThan(meanLocal)
   })
 })
 
