@@ -154,7 +154,39 @@ describe('layoutDependency', () => {
     const meanExternal = external.reduce((s, n) => s + radius(n), 0) / external.length
     expect(meanExternal).toBeGreaterThan(meanLocal)
   })
+
+  it('keeps every external outside the maximum local radius', () => {
+    const city = layoutCity(NODES, [], AREAS, 7)
+    expectExternalsOutsideLocals(layoutDependency(city, [], 7))
+  })
+
+  it('keeps one or two externals outside a skewed local graph', () => {
+    const locals = Array.from({ length: 8 }, (_, i) => node(`a${i}`, 'app', 50 + i * 40))
+    for (const count of [1, 2]) {
+      const externals = Array.from({ length: count }, (_, i) => ({
+        ...node(`pkg${i}`, 'dependencies', 0),
+        kind: 'external' as const,
+      }))
+      const areas: AtlasArea[] = [
+        { id: 'app', label: 'app', color: '#2A4A38', count: locals.length },
+        { id: 'dependencies', label: 'dependencies', color: '#56825F', count },
+      ]
+      const city = layoutCity([...locals, ...externals], [], areas, 7)
+      expectExternalsOutsideLocals(layoutDependency(city, [], 7))
+    }
+  })
 })
+
+function expectExternalsOutsideLocals(placed: AtlasNode[]): void {
+  const radius = (n: AtlasNode): number => Math.hypot(n.x, n.y)
+  const local = placed.filter((n) => n.kind !== 'external')
+  const external = placed.filter((n) => n.kind === 'external')
+  const maxLocal = Math.max(...local.map(radius))
+  expect(external.length).toBeGreaterThan(0)
+  for (const n of external) {
+    expect(radius(n)).toBeGreaterThan(maxLocal)
+  }
+}
 
 describe('mulberry32', () => {
   it('is a stable stream for a given seed', () => {
