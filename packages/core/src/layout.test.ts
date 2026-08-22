@@ -168,6 +168,37 @@ describe('layoutDependency', () => {
       expectBboxCentered(placed)
     }
   })
+
+  it('keeps external slabs separated at the 40-package cap', () => {
+    const local = node('app', 'src')
+    const externals = Array.from({ length: 40 }, (_, i) => ({
+      ...node(`pkg${String(i).padStart(2, '0')}`, 'dependencies', 0),
+      kind: 'external' as const,
+    }))
+    const links = externals.map((external) => ({
+      from: local.id,
+      to: external.id,
+      type: 'external' as const,
+      samples: [],
+    }))
+    const areas: AtlasArea[] = [
+      { id: 'src', label: 'src', color: '#2A4A38', count: 1 },
+      { id: 'dependencies', label: 'dependencies', color: '#56825F', count: externals.length },
+    ]
+    const city = layoutCity([local, ...externals], links, areas, 7)
+    const packages = layoutDependency(city, links, 7).filter((item) => item.kind === 'external')
+    let minimum = Infinity
+    for (let i = 0; i < packages.length; i++) {
+      for (let j = i + 1; j < packages.length; j++) {
+        minimum = Math.min(
+          minimum,
+          Math.hypot(packages[i]!.x - packages[j]!.x, packages[i]!.y - packages[j]!.y),
+        )
+      }
+    }
+
+    expect(minimum).toBeGreaterThanOrEqual(0.7)
+  })
 })
 
 function layoutSkewedDependency(externalCount: number): AtlasNode[] {
