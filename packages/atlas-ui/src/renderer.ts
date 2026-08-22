@@ -135,6 +135,18 @@ export class AtlasRenderer {
     this.draw()
   }
 
+  panBy(screenX: number, screenY: number): void {
+    this.camX += screenX
+    this.camY += screenY
+    this.layersDirty = true
+    this.draw()
+  }
+
+  /** Zoom about the viewport centre. Wheel zoom stays cursor-anchored. */
+  zoomBy(factor: number): void {
+    if (this.zoomAround(factor, 0, 0)) this.draw()
+  }
+
   /** Advance every packet one hop and stop, so a single exchange can be read. */
   traceOneStep(): void {
     for (const p of this.packets) p.t = (p.t + 0.125) % 1
@@ -629,16 +641,19 @@ export class AtlasRenderer {
     const rect = this.canvas.getBoundingClientRect()
     const px = e.clientX - rect.left - this.width / 2
     const py = e.clientY - rect.top - this.height / 2
+    this.zoomAround(Math.exp(-e.deltaY * 0.0016), px, py)
+  }
+
+  private zoomAround(factor: number, px: number, py: number): boolean {
     const worldX = (px - this.camX) / this.zoom
     const worldY = (py - this.camY) / this.zoom
-
-    const factor = Math.exp(-e.deltaY * 0.0016)
     const next = Math.max(0.18, Math.min(this.zoom * factor, 8))
-    if (next === this.zoom) return
+    if (next === this.zoom) return false
     this.zoom = next
     this.camX = px - worldX * this.zoom
     this.camY = py - worldY * this.zoom
     this.layersDirty = true
+    return true
   }
 }
 

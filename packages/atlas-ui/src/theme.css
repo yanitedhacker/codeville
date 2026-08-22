@@ -44,8 +44,8 @@
   box-sizing: border-box;
 }
 
-.cv-root :is(button, input, a):focus-visible {
-  outline: 1px solid var(--ink);
+.cv-root :is(button, input, a, canvas):focus-visible {
+  outline: 2px solid var(--ink);
   outline-offset: 2px;
 }
 
@@ -64,6 +64,12 @@
   display: flex;
   align-items: stretch;
   border-bottom: 1px solid var(--rule);
+  min-width: 0;
+}
+
+.cv-header-primary {
+  display: flex;
+  flex: 1;
   min-width: 0;
 }
 
@@ -658,21 +664,153 @@
 @media (max-width: 860px) {
   .cv-root {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: auto minmax(220px, 1fr) auto var(--footer);
+    grid-template-rows: auto auto minmax(220px, 1fr) auto var(--footer);
     grid-template-areas:
       "header"
+      "rail"
       "stage"
       "inspect"
       "footer";
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+
+  .cv-header {
+    flex-wrap: wrap;
+    height: auto;
+  }
+
+  .cv-header-primary {
+    flex: 1 1 100%;
+    border-bottom: 1px solid var(--rule);
+  }
+
+  .cv-repo {
+    min-width: 0;
+    max-width: none;
+    border-right: 0;
+  }
+
+  .cv-actions {
+    flex: 1 1 100%;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 8px 12px;
   }
 
   .cv-rail {
-    display: none;
+    display: flex;
+    width: 100%;
+    min-height: 150px;
+    max-height: 190px;
+    border-right: 0;
+    border-bottom: 1px solid var(--rule);
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+
+  .cv-search-results {
+    flex: 0 0 auto;
+    min-height: unset;
+    overflow-y: auto;
+  }
+
+  .cv-areas {
+    min-height: 0;
+    overflow-y: auto;
+    flex: 1 1 auto;
   }
 
   .cv-inspect {
     border-left: 0;
     border-top: 1px solid var(--rule);
-    max-height: 44vh;
+    max-height: 340px;
+  }
+}
+
+@media (max-width: 620px) {
+  .cv-stats {
+    display: none;
+  }
+}
+
+@media (max-width: 480px) {
+  .cv-root {
+    font-size: 11px;
+    grid-template-rows: auto auto minmax(280px, 1fr) auto auto;
+  }
+
+  .cv-label,
+  .cv-btn,
+  .cv-tab,
+  .cv-rail-head strong,
+  .cv-inspect-head strong,
+  .cv-chip {
+    font-size: 10px;
+  }
+
+  .cv-btn,
+  .cv-area,
+  .cv-search-result {
+    min-height: 44px;
+  }
+
+  .cv-empty,
+  .cv-summary,
+  .cv-list,
+  .cv-list button,
+  .cv-list-sub,
+  .cv-search-result,
+  .cv-area,
+  .cv-coverage-row,
+  .cv-note,
+  .cv-coverage-empty {
+    font-size: 11px;
+  }
+
+  .cv-actions {
+    flex-wrap: wrap;
+    overflow: visible;
+    row-gap: 8px;
+  }
+
+  .cv-stage {
+    min-height: 280px;
+  }
+
+  .cv-stage-top,
+  .cv-legend {
+    flex-wrap: wrap;
+    gap: 8px 16px;
+  }
+
+  .cv-stage-title .cv-label,
+  .cv-stage-top > .cv-label {
+    white-space: normal;
+  }
+
+  .cv-footer {
+    flex-wrap: wrap;
+    overflow: visible;
+    height: auto;
+    min-height: var(--footer);
+    padding: 6px 16px;
+    row-gap: 6px;
+  }
+
+  .cv-footer > .cv-label:first-child {
+    display: none;
+  }
+
+  .cv-footer > .cv-label:last-child {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: visible;
+    white-space: normal;
+  }
+
+  .cv-footer button {
+    font-size: 10px;
+    min-height: 44px;
   }
 }
