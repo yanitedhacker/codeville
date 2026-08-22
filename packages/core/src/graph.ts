@@ -1,6 +1,21 @@
-import type { AtlasArea, AtlasLink, AtlasNode, BuildOptions, FileRecord } from './types.js'
-import type { Resolver } from './resolve.js'
+import type {
+  AtlasArea,
+  AtlasCoverage,
+  AtlasLink,
+  AtlasNode,
+  BuildOptions,
+  FileRecord,
+  ImportRef,
+  SourceEvidence,
+} from './types.js'
+import type { ImportResolution, Resolver } from './resolve.js'
 import { classify, modalRole } from './classify.js'
+
+interface ResolvedFact {
+  file: FileRecord
+  ref: ImportRef
+  resolution: ImportResolution
+}
 
 export const DEFAULT_ROLLUP_DEPTH = 3
 /** Fraction of an area that must be reference material before it folds to one slab. */
@@ -20,6 +35,7 @@ export interface GraphResult {
   sourceFiles: number
   lines: number
   packages: number
+  coverage: AtlasCoverage
 }
 
 /** One green family, varied by value — the reference never leaves it. */
@@ -32,6 +48,9 @@ export function buildGraph(files: FileRecord[], resolver: Resolver, opts: BuildO
   const rollupDepth = opts.rollupDepth ?? DEFAULT_ROLLUP_DEPTH
   const requested = opts.maxNodes ?? DEFAULT_MAX_NODES
   const maxNodes = Number.isFinite(requested) && requested >= 1 ? requested : DEFAULT_MAX_NODES
+
+  const resolvedFacts = resolveFacts(files, resolver)
+  const coverage = coverageFromFacts(files, resolvedFacts)
 
   const roles = new Map<string, ReturnType<typeof classify>>()
   for (const f of files) roles.set(f.path, classify(f, f.excerpt.join('\n')))
@@ -55,16 +74,13 @@ export function buildGraph(files: FileRecord[], resolver: Resolver, opts: BuildO
   }
 
   const externalHits = new Map<string, { count: number; samples: string[] }>()
-  for (const f of files) {
-    for (const imp of f.imports) {
-      if (resolver.resolve(imp.spec, f.dir, f.path)) continue
-      const pkg = resolver.externalName(imp.spec, f.path)
-      if (!pkg) continue
-      const hit = externalHits.get(pkg) ?? { count: 0, samples: [] }
-      hit.count++
-      if (hit.samples.length < 6 && !hit.samples.includes(imp.statement)) hit.samples.push(imp.statement)
-      externalHits.set(pkg, hit)
-    }
+  for (const fact of resolvedFacts) {
+    if (fact.resolution.kind !== 'external') continue
+    const pkg = fact.resolution.name
+    const hit = externalHits.get(pkg) ?? { count: 0, samples: [] }
+    hit.count++
+    if (hit.samples.length < 6 && !hit.samples.includes(fact.ref.statement)) hit.samples.push(fact.ref.statement)
+    externalHits.set(pkg, hit)
   }
   const reservedExternals = Math.min(externalHits.size, MAX_EXTERNALS)
 
@@ -136,24 +152,31 @@ export function buildGraph(files: FileRecord[], resolver: Resolver, opts: BuildO
   }
 
   const edges = new Map<string, AtlasLink>()
-  const addEdge = (from: string, to: string, type: AtlasLink['type'], sample?: string) => {
+  const addEdge = (from: string, to: string, type: AtlasLink['type'], fact?: ResolvedFact) => {
     if (from === to) return
     const key = `${type} ${from} ${to}`
     let edge = edges.get(key)
     if (!edge) {
-      edge = { from, to, type, samples: [] }
+      edge = { from, to, type, samples: [], observations: 0, evidence: [], confidence: 'exact' }
       edges.set(key, edge)
     }
-    if (sample && edge.samples.length < 6 && !edge.samples.includes(sample)) edge.samples.push(sample)
+    if (!fact) return
+    edge.observations = (edge.observations ?? 0) + 1
+    if (fact.ref.confidence === 'heuristic') edge.confidence = 'heuristic'
+    if (edge.samples.length < 6 && !edge.samples.includes(fact.ref.statement)) edge.samples.push(fact.ref.statement)
+    const ev = evidenceOf(fact)
+    const seen = edge.evidence ?? []
+    if (seen.length >= 12) return
+    if (seen.some((item) => sameEvidence(item, ev))) return
+    seen.push(ev)
+    edge.evidence = seen
   }
 
-  for (const f of files) {
-    const from = visibleOf(f.path)
-    for (const imp of f.imports) {
-      const target = resolver.resolve(imp.spec, f.dir, f.path)
-      if (target && nodes.has(visibleOf(target))) {
-        addEdge(from, visibleOf(target), 'import', imp.statement)
-      }
+  for (const fact of resolvedFacts) {
+    if (fact.resolution.kind !== 'internal') continue
+    const target = fact.resolution.path
+    if (nodes.has(visibleOf(target))) {
+      addEdge(visibleOf(fact.file.path), visibleOf(target), 'import', fact)
     }
   }
 
@@ -181,13 +204,10 @@ export function buildGraph(files: FileRecord[], resolver: Resolver, opts: BuildO
   }
   const externalSet = new Set(topExternals.map(([p]) => p))
 
-  for (const f of files) {
-    const from = visibleOf(f.path)
-    for (const imp of f.imports) {
-      if (resolver.resolve(imp.spec, f.dir, f.path)) continue
-      const pkg = resolver.externalName(imp.spec, f.path)
-      if (pkg && externalSet.has(pkg)) addEdge(from, extId(pkg), 'external', imp.statement)
-    }
+  for (const fact of resolvedFacts) {
+    if (fact.resolution.kind !== 'external') continue
+    const pkg = fact.resolution.name
+    if (externalSet.has(pkg)) addEdge(visibleOf(fact.file.path), extId(pkg), 'external', fact)
   }
 
   // Containment: an area slab holds whatever sits directly beneath it.
@@ -235,7 +255,95 @@ export function buildGraph(files: FileRecord[], resolver: Resolver, opts: BuildO
     sourceFiles: files.length,
     lines: files.reduce((n, f) => n + f.lines, 0),
     packages: externalHits.size,
+    coverage: {
+      ...coverage,
+      rolledUpFiles: groupOf.size,
+      hiddenExternals: externalHits.size - topExternals.length,
+    },
   }
+}
+
+function resolveFacts(files: FileRecord[], resolver: Resolver): ResolvedFact[] {
+  return [...files]
+    .sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
+    .flatMap((file) =>
+      [...file.imports]
+        .sort((a, b) => a.startLine - b.startLine || a.endLine - b.endLine || (a.spec < b.spec ? -1 : a.spec > b.spec ? 1 : 0))
+        .map((ref) => ({
+          file,
+          ref,
+          resolution: resolver.resolveImport(ref.spec, file.dir, file.path),
+        })),
+    )
+}
+
+function coverageFromFacts(files: FileRecord[], resolvedFacts: ResolvedFact[]): AtlasCoverage {
+  const coverage: AtlasCoverage = {
+    exactFiles: 0,
+    heuristicFiles: 0,
+    unsupportedFiles: 0,
+    failedFiles: 0,
+    importFacts: resolvedFacts.length,
+    internalFacts: 0,
+    externalFacts: 0,
+    systemFacts: 0,
+    unresolvedFacts: 0,
+    ignoredFacts: 0,
+    rolledUpFiles: 0,
+    hiddenExternals: 0,
+  }
+  for (const file of files) {
+    switch (file.extraction.mode) {
+      case 'exact':
+        coverage.exactFiles++
+        break
+      case 'heuristic':
+        coverage.heuristicFiles++
+        break
+      case 'unsupported':
+        coverage.unsupportedFiles++
+        break
+      case 'failed':
+        coverage.failedFiles++
+        break
+    }
+  }
+  for (const fact of resolvedFacts) {
+    switch (fact.resolution.kind) {
+      case 'internal':
+        coverage.internalFacts++
+        break
+      case 'external':
+        coverage.externalFacts++
+        break
+      case 'system':
+        coverage.systemFacts++
+        break
+      case 'unresolved':
+        coverage.unresolvedFacts++
+        break
+      case 'ignored':
+        coverage.ignoredFacts++
+        break
+    }
+  }
+  return coverage
+}
+
+function evidenceOf(fact: ResolvedFact): SourceEvidence {
+  return {
+    path: fact.file.path,
+    startLine: fact.ref.startLine,
+    endLine: fact.ref.endLine,
+    specifier: fact.ref.spec,
+    statement: fact.ref.statement,
+    extractor: fact.ref.extractor,
+    confidence: fact.ref.confidence,
+  }
+}
+
+function sameEvidence(a: SourceEvidence, b: SourceEvidence): boolean {
+  return a.path === b.path && a.startLine === b.startLine && a.endLine === b.endLine && a.specifier === b.specifier
 }
 
 function assignGroups(files: FileRecord[], dense: Set<string>, rollupDepth: number): Map<string, string> {

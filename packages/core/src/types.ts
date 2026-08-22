@@ -2,6 +2,12 @@
 
 export type NodeKind = 'file' | 'dir' | 'external'
 export type LinkType = 'import' | 'containment' | 'external'
+export type LayoutMode = 'city' | 'dependency'
+
+export interface AtlasPosition {
+  x: number
+  y: number
+}
 
 export interface VirtualFile {
   /** Repo-relative POSIX path, no leading slash. */
@@ -35,6 +41,8 @@ export interface AtlasNode {
   symbols?: string[]
   /** Only ever written by an AI explainer adapter. Never by heuristics. */
   summary?: string
+  /** City and dependency projections. Filled by layout; omitted on older JSON. */
+  positions?: Record<LayoutMode, AtlasPosition>
 }
 
 export interface AtlasLink {
@@ -43,6 +51,10 @@ export interface AtlasLink {
   type: LinkType
   /** Literal import statements riding this edge — the inspectable data snippets. */
   samples: string[]
+  /** Contributing import facts. Always set by buildGraph; optional for older JSON. */
+  observations?: number
+  confidence?: EvidenceConfidence
+  evidence?: SourceEvidence[]
 }
 
 export interface AtlasArea {
@@ -58,6 +70,7 @@ export interface Atlas {
   areas: AtlasArea[]
   nodes: AtlasNode[]
   links: AtlasLink[]
+  coverage: AtlasCoverage
 }
 
 export type ExtractionMode = 'exact' | 'heuristic' | 'unsupported' | 'failed'
@@ -72,6 +85,21 @@ export interface SourceEvidence {
   statement: string
   extractor: string
   confidence: EvidenceConfidence
+}
+
+export interface AtlasCoverage {
+  exactFiles: number
+  heuristicFiles: number
+  unsupportedFiles: number
+  failedFiles: number
+  importFacts: number
+  internalFacts: number
+  externalFacts: number
+  systemFacts: number
+  unresolvedFacts: number
+  ignoredFacts: number
+  rolledUpFiles: number
+  hiddenExternals: number
 }
 
 export interface ExtractionReport {

@@ -51,6 +51,7 @@ export function buildAtlas(files: VirtualFile[], opts: BuildAtlasOptions = {}): 
     areas: graph.areas,
     nodes: positioned,
     links: graph.links,
+    coverage: graph.coverage,
   }
 }
 

@@ -41,7 +41,7 @@ describe('rust imports', () => {
 })
 
 describe('rust crate resolution', () => {
-  it('resolves the four fixture edges and only std as an external', () => {
+  it('resolves the four fixture edges and treats std as a system import', () => {
     const atlas = buildAtlas(
       [
         { path: 'src/lib.rs', text: 'mod graph;\npub mod layout;\nuse crate::graph::Node;\n' },
@@ -56,7 +56,7 @@ describe('rust crate resolution', () => {
     expect(got.has('src/lib.rs -> src/layout.rs')).toBe(true)
     expect(got.has('src/graph.rs -> src/types.rs')).toBe(true)
     expect(got.has('src/layout.rs -> src/graph.rs')).toBe(true)
-    expect(atlas.nodes.filter((n) => n.kind === 'external').map((n) => n.label).sort()).toEqual(['std'])
+    expect(atlas.nodes.filter((n) => n.kind === 'external').map((n) => n.label).sort()).toEqual([])
     expect(atlas.nodes.some((n) => n.kind === 'external' && n.label === 'crate')).toBe(false)
   })
 
