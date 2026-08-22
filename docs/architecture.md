@@ -5,11 +5,11 @@ Everything meets at one type, `Atlas` in `packages/core/src/types.ts`. The analy
 ```
 packages/core/       analyzer — pure TS, no DOM, runs in the browser and in node
   scan.ts              files in → records out, with the ignore rules
-  lang/                per-language import extractors (ts/js, python, go, rust)
-  resolve.ts           specifier → repo path or package, tsconfig `paths` aware
+  lang/                extractors: Babel for JS/TS, line scanners elsewhere
+  resolve.ts           specifier → ImportResolution, tsconfig `paths` aware
   classify.ts          path → role ("api endpoint", "service logic", …)
-  graph.ts             nodes, links, areas, rollup, node budget
-  layout.ts            deterministic seeded layout — never Math.random
+  graph.ts             nodes, links, areas, rollup, evidence, coverage
+  layout.ts            deterministic seeded City layout — never Math.random
   explain/             Explainer interface + heuristic and AI adapters
 packages/atlas-ui/   renderer — canvas2d + React, also builds the export bundle
 packages/cli/        the codeville command
@@ -25,6 +25,61 @@ Three front doors converge on `buildAtlas(files)`:
 | GitHub URL | `apps/web/api/github.ts` | fetches the tarball server-side |
 
 The GitHub route exists because `codeload.github.com` serves no CORS headers. Caps and `ref` rules: [security.md](security.md).
+
+## Extraction
+
+JS and TS files use `@babel/parser` for exact extraction when the path ends in `.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs`, `.mts`, or `.cts`. The extractor walks the AST and records static imports, side-effect imports, `export ... from`, literal dynamic imports, literal `require()` calls, and `import x = require("x")`. Static ESM facts are exact. Literal `require()` facts are heuristic because the identifier can be shadowed.
+
+When Babel cannot parse a file, the analyzer falls back to the TypeScript line scanner, marks the file `heuristic`, and records one parse diagnostic. Atlas generation does not stop.
+
+Python, Go, Rust, Vue, Svelte, and Astro keep language-specific line scanners and are `heuristic` in v1. Accepted source extensions without an extractor are `unsupported`: the file can still become a block, but it contributes no import facts.
+
+## Why ripgrep is not a parser
+
+Use `rg` while you navigate the repository or audit a benchmark. Do not treat its output as an import fact. The analyzer has no runtime ripgrep dependency, and it never builds edges from a regex tool call. Browser folder and zip ingest run entirely in the page and cannot depend on a host binary.
+
+## Import resolution
+
+`Resolver.resolveImport(spec, fromDir, fromFile)` classifies each import fact once:
+
+| `ImportResolution.kind` | Meaning |
+| --- | --- |
+| `internal` | Specifier maps to a scanned repository path |
+| `external` | Specifier is a third-party package |
+| `system` | Specifier is a language standard library (`node:` / Node built-ins on JS/TS, Go stdlib on `.go`, Rust `std`/`core`/`alloc`/`proc_macro`/`test` on `.rs`) |
+| `unresolved` | Relative or configured-alias specifier that does not hit a file |
+| `ignored` | Specifier is neither a package nor a resolvable repository path |
+
+`resolve()` and `externalName()` remain compatibility wrappers. System and unresolved facts increment coverage and do not create external package slabs. Relative and alias misses stay `unresolved`; they never become packages.
+
+## Evidence aggregation
+
+Every visible import or external link carries `observations`, `confidence`, and `evidence`. Evidence is deterministic, deduplicated by path, range, and specifier, and capped at 12 items per visible link. An aggregated link is `exact` only when every contributing observation is exact. One heuristic observation makes the link heuristic. `AtlasLink.samples` stays for older consumers and standalone payload size.
+
+## Coverage
+
+`Atlas.coverage` counts source facts before visible-edge aggregation. The five resolution buckets sum to `importFacts`. Do not label `internalFacts / importFacts` as generic quality. Internal resolution coverage is `internalFacts / (internalFacts + unresolvedFacts)`.
+
+| Field | Meaning |
+| --- | --- |
+| `exactFiles` | Source files whose extractor reported `exact` |
+| `heuristicFiles` | Source files extracted by a line scanner or Babel fallback |
+| `unsupportedFiles` | Accepted source files with no extractor |
+| `failedFiles` | Extractor threw; the file contributes no facts |
+| `importFacts` | Import statements recorded before roll-up |
+| `internalFacts` | Facts resolved to a repository path |
+| `externalFacts` | Facts classified as packages |
+| `systemFacts` | Facts classified as standard-library imports |
+| `unresolvedFacts` | Relative or alias facts that missed a file |
+| `ignoredFacts` | Facts that are neither packages nor resolvable paths |
+| `rolledUpFiles` | Source files folded into a directory slab |
+| `hiddenExternals` | Distinct packages omitted after the external cap |
+
+## City and dependency projections
+
+City geometry is filesystem and package spatial memory: area discs, phyllotaxis file placement, and an outer package ring. Dependency geometry is import-derived proximity: files that import each other sit closer than files that only share a folder.
+
+`AtlasNode.x`, `y`, and `h` remain the City defaults so older JSON still renders. The atlas contract also names a `dependency` layout mode on `AtlasNode.positions`. The renderer still reads City coordinates. The UI does not yet expose a City / Dependencies control.
 
 ## Projection
 

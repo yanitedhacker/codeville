@@ -72,8 +72,10 @@ export function App() {
         <span className="drop-label">Codeville</span>
         <h1 className="drop-title">Drop a repo. Get an atlas.</h1>
         <p className="drop-copy">
-          Every source file becomes a block, every import becomes an arc, and the moving dots are the
-          import statements themselves. Folders and archives are read entirely in this browser.
+          Supported source files become blocks; parser-confirmed and heuristic imports become
+          inspectable arcs. The atlas reports unsupported files, unresolved imports, and roll-ups
+          instead of hiding them. The moving dots are the import statements themselves. Folders and
+          archives are read entirely in this browser.
         </p>
 
         <div className="drop-zone">

@@ -24,7 +24,7 @@
   <a href="CONTRIBUTING.md">Contributing</a>
 </p>
 
-Point it at a repository. It emits an interactive isometric atlas as one HTML file. Every source file is a block; every import is an arc. Click a block, read the file. Pan the map.
+Point it at a repository. It emits an interactive isometric atlas as one HTML file. Supported source files become blocks; parser-confirmed and heuristic imports become inspectable arcs. The atlas reports unsupported files, unresolved imports, and roll-ups instead of hiding them. Click a block, read the file. Pan the map.
 
 You cannot hold a 400-file tree in your head. A map you can pan is the point. If you want to *see* a codebase instead of grep it, this is it.
 
@@ -57,6 +57,12 @@ open atlas.html
 - GitHub paste is the only server fetch (codeload), because that host has no CORS.
 - CLI writes one HTML file. Open it from `file://`. Zero network.
 - AI explainers are optional and only add a summary sentence. They never replace derived fields. CLI adapters use a binary you already signed into.
+
+## Exact versus heuristic extraction
+
+Exact extraction is a Babel parse of `.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs`, `.mts`, and `.cts`. A parse error falls back to the line scanner and marks that file heuristic.
+
+Python, Go, Rust, Vue, Svelte, and Astro extraction is heuristic in v1. Other accepted source extensions are unsupported: they can still receive a block, but they contribute no import facts.
 
 ## Security defaults
 

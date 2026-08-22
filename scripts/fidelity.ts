@@ -1,53 +1,71 @@
 import { readRepo } from '../packages/cli/src/readdir.js'
-import { scan, createResolver, readTsconfigAliases, readWorkspacePackages } from '../packages/core/src/index.js'
+import {
+  buildAtlas,
+  createResolver,
+  readCargoCrates,
+  readGoModules,
+  readTsconfigAliases,
+  readWorkspacePackages,
+  scan,
+} from '../packages/core/src/index.js'
 
 const root = process.argv[2] ?? process.cwd()
 const { files } = await readRepo(root)
+const atlas = buildAtlas(files)
+const { coverage, stats } = atlas
+
 const records = scan(files)
+const index = new Set(records.map((r) => r.path))
 const ts = files.find((f) => f.path === 'tsconfig.json')
-const workspaces = readWorkspacePackages(files, new Set(records.map((r) => r.path)))
-const withAliases = createResolver(records, { ...(ts ? readTsconfigAliases(ts.text) : {}), workspaces })
-const noAliases = createResolver(records, { workspaces })
+const cargo = readCargoCrates(files, index)
+const resolver = createResolver(records, {
+  ...(ts ? readTsconfigAliases(ts.text) : {}),
+  workspaces: readWorkspacePackages(files, index),
+  goModules: readGoModules(files),
+  cargoCrates: cargo.crates,
+  cargoDeps: cargo.deps,
+})
 
-let relTotal = 0
-let relResolved = 0
-const unresolvedRel: string[] = []
-for (const f of records) {
-  for (const imp of f.imports) {
-    if (!imp.spec.startsWith('.')) continue
-    relTotal++
-    if (withAliases.resolve(imp.spec, f.dir)) relResolved++
-    else unresolvedRel.push(f.path + '  ->  ' + imp.spec)
+const unresolved: { path: string; startLine: number; spec: string }[] = []
+for (const rec of records) {
+  for (const imp of rec.imports) {
+    const resolution = resolver.resolveImport(imp.spec, rec.dir, rec.path)
+    if (resolution.kind !== 'unresolved') continue
+    unresolved.push({ path: rec.path, startLine: imp.startLine, spec: imp.spec })
   }
 }
+unresolved.sort((a, b) => {
+  if (a.path !== b.path) return a.path < b.path ? -1 : 1
+  if (a.startLine !== b.startLine) return a.startLine - b.startLine
+  if (a.spec !== b.spec) return a.spec < b.spec ? -1 : 1
+  return 0
+})
 
-// Workspace-internal specifiers that a repo without tsconfig paths would misread as npm packages.
-const wsNames = new Set<string>()
-for (const f of files) {
-  if (!/(^|\/)package\.json$/.test(f.path)) continue
-  try {
-    const name = (JSON.parse(f.text) as { name?: string }).name
-    if (name && name !== 'codeville') wsNames.add(name)
-  } catch {}
-}
-let wsMisread = 0
-for (const f of records) {
-  for (const imp of f.imports) {
-    if (imp.spec.startsWith('.')) continue
-    const head = imp.spec.startsWith('@') ? imp.spec.split('/').slice(0, 2).join('/') : imp.spec.split('/')[0]
-    if (!head || !wsNames.has(head)) continue
-    if (!noAliases.resolve(imp.spec, f.dir)) wsMisread++
-  }
-}
+const rows: [string, number][] = [
+  ['source files', stats.sourceFiles],
+  ['exact parser files', coverage.exactFiles],
+  ['heuristic parser files', coverage.heuristicFiles],
+  ['unsupported files', coverage.unsupportedFiles],
+  ['import facts', coverage.importFacts],
+  ['internal resolved', coverage.internalFacts],
+  ['external packages', coverage.externalFacts],
+  ['system imports', coverage.systemFacts],
+  ['unresolved imports', coverage.unresolvedFacts],
+  ['ignored imports', coverage.ignoredFacts],
+  ['rolled-up files', coverage.rolledUpFiles],
+  ['hidden externals', coverage.hiddenExternals],
+]
 
-const pct = relTotal ? ((relResolved / relTotal) * 100).toFixed(1) : '0.0'
-console.log('source files                  ' + records.length)
-console.log('package.json manifests seen   ' + files.filter((f) => /(^|\/)package\.json$/.test(f.path)).length)
-console.log('workspace package names       ' + [...wsNames].sort().join(', '))
-console.log('relative specifiers           ' + relTotal)
-console.log('relative resolved             ' + relResolved + '  (' + pct + '%)')
-console.log('workspace imports misread     ' + wsMisread)
+const width = Math.max(...rows.map(([label]) => label.length), 'internal resolution coverage'.length)
+for (const [label, value] of rows) console.log(label.padEnd(width + 2) + value)
+
+const denom = coverage.internalFacts + coverage.unresolvedFacts
+const ratio = denom === 0 ? 'n/a' : ((coverage.internalFacts / denom) * 100).toFixed(1) + '%'
+console.log('internal resolution coverage'.padEnd(width + 2) + ratio)
+
 console.log('')
-console.log('unresolved relative specifiers:')
-for (const line of unresolvedRel.slice(0, 10)) console.log('   ' + line)
-if (unresolvedRel.length > 10) console.log('   ... ' + (unresolvedRel.length - 10) + ' more')
+console.log('unresolved facts:')
+for (const fact of unresolved.slice(0, 10)) {
+  console.log('   ' + fact.path + ':' + fact.startLine + '  ->  ' + fact.spec)
+}
+if (unresolved.length > 10) console.log('   ... ' + (unresolved.length - 10) + ' more')
