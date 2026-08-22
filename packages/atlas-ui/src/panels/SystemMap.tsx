@@ -15,15 +15,17 @@ export function SystemMap({ atlas, activeArea, filter, onArea, onFilter, onSelec
   const querying = filter.trim() !== ''
   const matchCount = querying ? searchMatchCount(atlas.nodes, filter) : 0
   const results = querying ? searchNodes(atlas.nodes, filter) : []
-  const coverage = atlas.coverage
-  const rows: [string, number][] = [
-    ['exact', coverage.exactFiles],
-    ['heuristic', coverage.heuristicFiles],
-    ['unsupported', coverage.unsupportedFiles],
-    ['unresolved', coverage.unresolvedFacts],
-    ['rolled-up', coverage.rolledUpFiles],
-    ['hidden-external', coverage.hiddenExternals],
-  ]
+  const coverage = (atlas as Atlas & { coverage?: Atlas['coverage'] }).coverage
+  const rows: [string, number][] = coverage
+    ? [
+        ['exact', coverage.exactFiles],
+        ['heuristic', coverage.heuristicFiles],
+        ['unsupported', coverage.unsupportedFiles],
+        ['unresolved', coverage.unresolvedFacts],
+        ['rolled-up', coverage.rolledUpFiles],
+        ['hidden-external', coverage.hiddenExternals],
+      ]
+    : []
 
   return (
     <aside className="cv-rail">
@@ -83,14 +85,20 @@ export function SystemMap({ atlas, activeArea, filter, onArea, onFilter, onSelec
       </div>
 
       <div className="cv-coverage">
-        {rows.map(([label, value]) => (
-          <div className="cv-coverage-row" key={label}>
-            <span>{label}</span>
-            <span>{value.toLocaleString('en-US')}</span>
-          </div>
-        ))}
-        {coverage.importFacts === 0 && (
-          <p className="cv-coverage-empty">No import facts extracted</p>
+        {coverage ? (
+          <>
+            {rows.map(([label, value]) => (
+              <div className="cv-coverage-row" key={label}>
+                <span>{label}</span>
+                <span>{value.toLocaleString('en-US')}</span>
+              </div>
+            ))}
+            {coverage.importFacts === 0 && (
+              <p className="cv-coverage-empty">No import facts extracted</p>
+            )}
+          </>
+        ) : (
+          <p className="cv-coverage-empty">Coverage unavailable for this atlas</p>
         )}
       </div>
 

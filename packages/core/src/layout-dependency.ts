@@ -9,6 +9,8 @@ const CONTAINMENT_SPRING = 0.012
 const IMPORT_LENGTH = 2.2
 const CONTAINMENT_LENGTH = 3.6
 const EPS = 1e-6
+/** Package slabs are 0.68 units wide; 1.0 keeps diagonal neighbours disjoint. */
+const EXTERNAL_MIN_CHORD = 1
 
 const byId = (a: { id: string }, b: { id: string }): number => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
 
@@ -113,7 +115,10 @@ function placeExternals(nodes: AtlasNode[]): void {
     const r = Math.hypot(node.x, node.y)
     if (r > maxR) maxR = r
   }
-  const ring = maxR + IMPORT_LENGTH
+  const countRadius = externals.length > 1
+    ? EXTERNAL_MIN_CHORD / (2 * Math.sin(Math.PI / externals.length))
+    : 0
+  const ring = Math.max(maxR + IMPORT_LENGTH, countRadius)
   externals.forEach((node, k) => {
     const theta = (k / externals.length) * 2 * Math.PI
     node.x = Math.cos(theta) * ring
