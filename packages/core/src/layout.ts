@@ -10,7 +10,7 @@ const RELAX_ITERS = 120
  * Deterministic by construction: seeded PRNG, fixed iteration count, stable sort keys.
  * Same repo in, byte-identical coordinates out. Locked by layout.test.ts.
  */
-export function layout(nodes: Placed[], links: AtlasLink[], areas: AtlasArea[], seed = 0x5eed): AtlasNode[] {
+export function layoutCity(nodes: Placed[], links: AtlasLink[], areas: AtlasArea[], seed = 0x5eed): AtlasNode[] {
   const rand = mulberry32(seed)
   const local = areas.filter((a) => a.id !== 'dependencies')
 
@@ -75,6 +75,8 @@ export function layout(nodes: Placed[], links: AtlasLink[], areas: AtlasArea[], 
   relax(out, centers, rand)
   return recenter(out)
 }
+
+export const layout = layoutCity
 
 /**
  * Log height, deliberately shallow: these read as blocks on a plan, not towers.

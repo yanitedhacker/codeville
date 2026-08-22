@@ -135,6 +135,22 @@ describe('buildAtlas', () => {
     expect(a).toBe(b)
   })
 
+  it('gives at least one linked node different dependency coordinates from city', () => {
+    const linked = new Set<string>()
+    for (const link of atlas.links) {
+      linked.add(link.from)
+      linked.add(link.to)
+    }
+    expect(
+      atlas.nodes.some((n) => {
+        const city = n.positions?.city
+        const dependency = n.positions?.dependency
+        if (!city || !dependency || !linked.has(n.id)) return false
+        return city.x !== dependency.x || city.y !== dependency.y
+      }),
+    ).toBe(true)
+  })
+
   it('records outline symbols on file nodes, capped, and omits them on packages', () => {
     const session = atlas.nodes.find((n) => n.id === 'lib/session.ts')
     expect(session?.symbols).toContain('getSession')

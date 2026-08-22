@@ -41,7 +41,7 @@ export interface AtlasNode {
   symbols?: string[]
   /** Only ever written by an AI explainer adapter. Never by heuristics. */
   summary?: string
-  /** City and dependency projections. Filled by layout; omitted on older JSON. */
+  /** City and dependency projections. Filled by buildAtlas; omitted on older JSON. */
   positions?: Record<LayoutMode, AtlasPosition>
 }
 

@@ -3,7 +3,8 @@ import { parseJsonc } from './jsonc.js'
 import { scan, type ScanOptions } from './scan.js'
 import { createResolver, joinRepoPath, MAX_MANIFESTS, readCargoCrates, readGoModules, readTsconfigAliases, readWorkspacePackages, type ResolverOptions } from './resolve.js'
 import { buildGraph } from './graph.js'
-import { layout } from './layout.js'
+import { layoutCity } from './layout.js'
+import { layoutDependency } from './layout-dependency.js'
 
 /** Manifests ingest dropped before scan, when known. Counts stay per kind. */
 export interface OmittedManifests {
@@ -32,7 +33,30 @@ export function buildAtlas(files: VirtualFile[], opts: BuildAtlasOptions = {}): 
     cargoDeps: cargo.deps,
   })
   const graph = buildGraph(records, resolver, opts)
-  const positioned = layout(graph.nodes, graph.links, graph.areas, seedFrom(records.map((r) => r.path)))
+  const seed = seedFrom(records.map((r) => r.path))
+  const city = layoutCity(graph.nodes, graph.links, graph.areas, seed)
+  const dependency = layoutDependency(city, graph.links, seed)
+  const cityById = new Map(city.map((node) => [node.id, node]))
+  const dependencyById = new Map(dependency.map((node) => [node.id, node]))
+  const positioned = city.map((node) => {
+    const dep = dependencyById.get(node.id)
+    if (!dep) throw new Error(`layout omitted node id ${node.id}`)
+    return {
+      ...node,
+      x: node.x,
+      y: node.y,
+      h: node.h,
+      positions: {
+        city: { x: node.x, y: node.y },
+        dependency: { x: dep.x, y: dep.y },
+      },
+    }
+  })
+  for (const node of graph.nodes) {
+    if (!cityById.has(node.id) || !dependencyById.has(node.id)) {
+      throw new Error(`layout omitted node id ${node.id}`)
+    }
+  }
 
   const name = opts.repoName ?? readPackageName(pkg?.text) ?? 'repository'
   const shownPkgs = graph.nodes.filter((n) => n.kind === 'external').length
