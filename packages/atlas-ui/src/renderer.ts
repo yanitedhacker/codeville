@@ -1,4 +1,4 @@
-import type { Atlas, AtlasLink, AtlasNode } from '@codeville/core'
+import type { Atlas, AtlasLink, AtlasNode, LayoutMode } from '@codeville/core'
 import { UNIT, arc, bezier, halfWidth, hitLink, hitNode, project, shade, slabFaces, sortByDepth, type Point } from './iso.js'
 
 export interface ViewState {
@@ -51,6 +51,8 @@ export class AtlasRenderer {
   private readonly cb: RendererCallbacks
 
   private atlas: Atlas
+  private layoutMode: LayoutMode = 'city'
+  private activeNodes: AtlasNode[] = []
   private view: ViewState = { selected: [], selectedLink: null, hovered: null, activeArea: null, filter: '', flowing: true }
 
   private nodeById = new Map<string, AtlasNode>()
@@ -82,7 +84,7 @@ export class AtlasRenderer {
     this.ctx = ctx
     this.atlas = atlas
     this.cb = cb
-    this.ingest(atlas)
+    this.ingest()
     this.bindEvents()
     ;(canvas as HTMLCanvasElement & { __codeville?: AtlasRenderer }).__codeville = this
     this.frame = requestAnimationFrame(this.tick)
@@ -92,8 +94,15 @@ export class AtlasRenderer {
 
   setAtlas(atlas: Atlas): void {
     this.atlas = atlas
-    this.ingest(atlas)
+    this.ingest()
     this.resetView()
+  }
+
+  setLayout(mode: LayoutMode): void {
+    this.layoutMode = mode
+    this.ingest()
+    this.fit()
+    this.draw()
   }
 
   setView(next: Partial<ViewState>): void {
@@ -166,13 +175,18 @@ export class AtlasRenderer {
 
   // --- setup --------------------------------------------------------------
 
-  private ingest(atlas: Atlas): void {
-    this.nodeById = new Map(atlas.nodes.map((n) => [n.id, n]))
-    this.ordered = sortByDepth(atlas.nodes)
+  private ingest(): void {
+    const mode = this.layoutMode
+    this.activeNodes = this.atlas.nodes.map((node) => {
+      const pos = node.positions?.[mode] ?? { x: node.x, y: node.y }
+      return { ...node, x: pos.x, y: pos.y }
+    })
+    this.nodeById = new Map(this.activeNodes.map((n) => [n.id, n]))
+    this.ordered = sortByDepth(this.activeNodes)
 
     this.packets = []
-    for (let i = 0; i < atlas.links.length; i++) {
-      const link = atlas.links[i]!
+    for (let i = 0; i < this.atlas.links.length; i++) {
+      const link = this.atlas.links[i]!
       if (link.type === 'containment') continue
       const a = this.nodeById.get(link.from)
       const b = this.nodeById.get(link.to)
@@ -183,12 +197,12 @@ export class AtlasRenderer {
     }
 
     // Label the structural slabs and the busiest files; everything else on demand.
-    const busy = [...atlas.nodes]
+    const busy = [...this.activeNodes]
       .filter((n) => n.kind === 'file')
       .sort((a, b) => b.in + b.out - (a.in + a.out))
       .slice(0, 18)
     this.labelled = new Set([
-      ...atlas.nodes.filter((n) => n.kind === 'dir').map((n) => n.id),
+      ...this.activeNodes.filter((n) => n.kind === 'dir').map((n) => n.id),
       ...busy.map((n) => n.id),
     ])
     this.layersDirty = true
@@ -196,7 +210,7 @@ export class AtlasRenderer {
 
   private fit(): void {
     let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity
-    for (const n of this.atlas.nodes) {
+    for (const n of this.activeNodes) {
       const s = halfWidth(n)
       for (const [dx, dy, dz] of [[-s, -s, n.h], [s, -s, n.h], [s, s, 0], [-s, s, 0]] as const) {
         const p = project(n.x + dx, n.y + dy, dz)
@@ -335,7 +349,7 @@ export class AtlasRenderer {
   private drawGrid(ctx: CanvasRenderingContext2D): void {
     let min = 0
     let max = 0
-    for (const n of this.atlas.nodes) {
+    for (const n of this.activeNodes) {
       min = Math.min(min, n.x, n.y)
       max = Math.max(max, n.x, n.y)
     }

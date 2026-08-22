@@ -1,8 +1,10 @@
-import type { Atlas } from '@codeville/core'
+import type { Atlas, LayoutMode } from '@codeville/core'
 
 interface Props {
   atlas: Atlas
+  layoutMode: LayoutMode
   flowing: boolean
+  onLayout(mode: LayoutMode): void
   onToggleFlow(): void
   onTrace(): void
   onReset(): void
@@ -10,7 +12,7 @@ interface Props {
 
 const n = (v: number): string => v.toLocaleString('en-US')
 
-export function Header({ atlas, flowing, onToggleFlow, onTrace, onReset }: Props) {
+export function Header({ atlas, layoutMode, flowing, onLayout, onToggleFlow, onTrace, onReset }: Props) {
   const { stats } = atlas
   const cells: [string, string][] = [
     [n(stats.nodes), 'nodes'],
@@ -35,6 +37,22 @@ export function Header({ atlas, flowing, onToggleFlow, onTrace, onReset }: Props
         ))}
       </div>
       <div className="cv-actions">
+        <button
+          className="cv-btn"
+          data-on={layoutMode === 'city'}
+          aria-pressed={layoutMode === 'city'}
+          onClick={() => onLayout('city')}
+        >
+          City
+        </button>
+        <button
+          className="cv-btn"
+          data-on={layoutMode === 'dependency'}
+          aria-pressed={layoutMode === 'dependency'}
+          onClick={() => onLayout('dependency')}
+        >
+          Dependencies
+        </button>
         <button className="cv-btn" data-on={flowing} onClick={onToggleFlow}>
           {flowing ? 'Pause flow' : 'Resume the flow'}
         </button>

@@ -1,4 +1,5 @@
 import type { Atlas } from '@codeville/core'
+import { searchNodes } from '../search.js'
 
 interface Props {
   atlas: Atlas
@@ -6,10 +7,22 @@ interface Props {
   filter: string
   onArea(id: string | null): void
   onFilter(value: string): void
+  onSelect(id: string): void
 }
 
-export function SystemMap({ atlas, activeArea, filter, onArea, onFilter }: Props) {
+export function SystemMap({ atlas, activeArea, filter, onArea, onFilter, onSelect }: Props) {
   const total = atlas.nodes.length
+  const querying = filter.trim() !== ''
+  const results = querying ? searchNodes(atlas.nodes, filter) : []
+  const coverage = atlas.coverage
+  const rows: [string, number][] = [
+    ['exact', coverage.exactFiles],
+    ['heuristic', coverage.heuristicFiles],
+    ['unsupported', coverage.unsupportedFiles],
+    ['unresolved', coverage.unresolvedFacts],
+    ['rolled-up', coverage.rolledUpFiles],
+    ['hidden-external', coverage.hiddenExternals],
+  ]
 
   return (
     <aside className="cv-rail">
@@ -23,8 +36,21 @@ export function SystemMap({ atlas, activeArea, filter, onArea, onFilter }: Props
         value={filter}
         placeholder="filter files or areas"
         spellCheck={false}
+        aria-label="Search files, roles, and symbols"
         onChange={(e) => onFilter(e.target.value)}
       />
+
+      {querying && (
+        <div className="cv-search-results">
+          <span className="cv-label">{results.length.toLocaleString('en-US')} results</span>
+          {results.map((node) => (
+            <button key={node.id} className="cv-search-result" onClick={() => onSelect(node.id)}>
+              {node.path}
+              <span className="cv-list-sub">{node.role}</span>
+            </button>
+          ))}
+        </div>
+      )}
 
       <div className="cv-areas">
         <button
@@ -53,6 +79,18 @@ export function SystemMap({ atlas, activeArea, filter, onArea, onFilter }: Props
             <span className="cv-area-count">{area.count}</span>
           </button>
         ))}
+      </div>
+
+      <div className="cv-coverage">
+        {rows.map(([label, value]) => (
+          <div className="cv-coverage-row" key={label}>
+            <span>{label}</span>
+            <span>{value.toLocaleString('en-US')}</span>
+          </div>
+        ))}
+        {coverage.importFacts === 0 && (
+          <p className="cv-coverage-empty">No import facts extracted</p>
+        )}
       </div>
 
       <p className="cv-note">{atlas.repo.note}</p>
