@@ -101,7 +101,7 @@ export function layoutDependency(nodes: AtlasNode[], links: AtlasLink[], seed: n
     placeExternals(placed)
   }
 
-  return recenter(placed)
+  return finalize(placed)
 }
 
 function placeExternals(nodes: AtlasNode[]): void {
@@ -121,22 +121,37 @@ function placeExternals(nodes: AtlasNode[]): void {
   })
 }
 
-function recenter(nodes: AtlasNode[]): AtlasNode[] {
+/** Center on the local graph, then park externals outside the final local radius. */
+function finalize(nodes: AtlasNode[]): AtlasNode[] {
   if (nodes.length === 0) return nodes
-  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity
+  recenterLocals(nodes)
+  placeExternals(nodes)
   for (const n of nodes) {
+    n.x = Math.round(n.x * 1000) / 1000
+    n.y = Math.round(n.y * 1000) / 1000
+  }
+  return nodes
+}
+
+function recenterLocals(nodes: AtlasNode[]): void {
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity
+  let sawLocal = false
+  for (const n of nodes) {
+    if (n.kind === 'external') continue
+    sawLocal = true
     if (n.x < minX) minX = n.x
     if (n.x > maxX) maxX = n.x
     if (n.y < minY) minY = n.y
     if (n.y > maxY) maxY = n.y
   }
+  if (!sawLocal) return
   const cx = (minX + maxX) / 2
   const cy = (minY + maxY) / 2
   for (const n of nodes) {
-    n.x = Math.round((n.x - cx) * 1000) / 1000
-    n.y = Math.round((n.y - cy) * 1000) / 1000
+    if (n.kind === 'external') continue
+    n.x -= cx
+    n.y -= cy
   }
-  return nodes
 }
 
 function clamp(value: number, lo: number, hi: number): number {
