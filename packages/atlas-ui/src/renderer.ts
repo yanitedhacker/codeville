@@ -127,6 +127,7 @@ export class AtlasRenderer {
     this.canvas.style.width = `${width}px`
     this.canvas.style.height = `${height}px`
     this.fit()
+    if (this.view.focus) this.focusNodes(this.view.focus.nodeIds)
     // Paint now rather than waiting for RAF: in a background tab RAF never fires,
     // which would leave the page blank and hit-testing dead until it is focused.
     this.draw()
