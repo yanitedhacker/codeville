@@ -10,3 +10,4 @@ export {
   type AtlasFocus,
   type FocusDirection,
 } from './focus.js'
+export { buildTour, type TourChapter } from './tour.js'
