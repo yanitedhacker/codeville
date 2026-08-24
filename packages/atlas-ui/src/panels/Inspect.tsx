@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Atlas, AtlasLink, AtlasNode } from '@codeville/core'
-import { describeLink, describeSet } from '../../../core/src/explain/heuristic.js'
+import { describeLink, describeSet } from '@codeville/core/explain/heuristic'
 import { askFlagFragment, chosenAskFn } from './ask-flags.js'
 import { dependencyCone, shortestDependencyPath, type AtlasFocus, type FocusDirection } from '../focus.js'
 

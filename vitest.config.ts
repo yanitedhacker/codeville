@@ -6,6 +6,7 @@ const r = (p: string) => fileURLToPath(new URL(p, import.meta.url))
 export default defineConfig({
   resolve: {
     alias: {
+      '@codeville/core/explain/heuristic': r('./packages/core/src/explain/heuristic.ts'),
       '@codeville/core': r('./packages/core/src/index.ts'),
       '@codeville/atlas-ui': r('./packages/atlas-ui/src/index.ts'),
     },

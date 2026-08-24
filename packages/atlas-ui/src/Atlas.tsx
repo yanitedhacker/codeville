@@ -24,6 +24,20 @@ interface Tip {
   y: number
 }
 
+export function syncRendererProjection(
+  renderer: Pick<AtlasRenderer, 'setView' | 'focusNodes'>,
+  focus: AtlasFocus | null,
+): void {
+  if (!focus) {
+    renderer.setView({ focus: null })
+    return
+  }
+  const nodeIds = [...focus.nodeIds].sort()
+  const linkKeys = [...focus.linkKeys].sort()
+  renderer.setView({ focus: { nodeIds, linkKeys } })
+  renderer.focusNodes(nodeIds)
+}
+
 export function Atlas({ atlas, caption = 'Local source atlas / read-only projection', footerExtra }: AtlasProps) {
   const stageRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -120,11 +134,12 @@ export function Atlas({ atlas, caption = 'Local source atlas / read-only project
       flowing,
       focus: activeFocus ? { nodeIds: activeFocus.nodeIds, linkKeys: activeFocus.linkKeys } : null,
     })
-  }, [selected, selectedLink, hovered, activeArea, filter, flowing, activeFocus])
+  }, [selected, selectedLink, hovered, activeArea, filter, flowing, activeFocus, atlas])
 
   useEffect(() => {
-    if (activeFocus) rendererRef.current?.focusNodes(activeFocus.nodeIds)
-  }, [activeFocus, layoutMode])
+    const renderer = rendererRef.current
+    if (renderer && activeFocus) syncRendererProjection(renderer, activeFocus)
+  }, [activeFocus, layoutMode, atlas])
 
   // Selecting from a list should also bring the block into view. Replaces the set.
   const selectFromList = useCallback((id: string) => {
