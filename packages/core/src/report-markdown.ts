@@ -4,6 +4,7 @@ const compare = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0)
 
 function cell(value: unknown): string {
   return String(value ?? '')
+    .replace(/\\/g, '\\\\')
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')

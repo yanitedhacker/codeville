@@ -72,4 +72,19 @@ describe('renderAtlasMarkdown', () => {
     expect(output).toContain('\\[secret\\]\\(./secret\\)')
     expect(output).not.toContain('[secret](./secret)')
   })
+
+  it('escapes existing backslashes before Markdown delimiters', () => {
+    const hostile = {
+      ...atlas,
+      repo: { ...atlas.repo, name: String.raw`\[x\]\(./x\)`, note: String.raw`\| cell` },
+      nodes: atlas.nodes.map((node) => node.id === 'a.ts' ? { ...node, path: String.raw`\[x\]\(./x\)` } : node),
+    }
+    const output = renderAtlasMarkdown(hostile)
+    expect(output).toContain(String.raw`\\\[x\\\]\\\(./x\\\)`)
+    expect(output).toContain(String.raw`\\\| cell`)
+    expect(output).not.toContain('](./x)')
+    const noteLine = output.split('\n').find((line) => line.startsWith('- Note:'))
+    expect(noteLine).toBe(String.raw`- Note: \\\| cell`)
+    expect(noteLine).not.toMatch(/(?<!\\)\|/)
+  })
 })
