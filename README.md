@@ -28,6 +28,8 @@ Point it at a repository. It emits an interactive isometric atlas as one HTML fi
 
 You cannot hold a 400-file tree in your head. A map you can pan is the point. If you want to *see* a codebase instead of grep it, this is it.
 
+The guided tour and dependency focus are derived from the visible import topology. Dependency cones and directed paths describe the visible slice; they are not runtime traces or execution-flow analysis.
+
 <p align="center">
   <img src="docs/assets/atlas.png" alt="Isometric atlas of this repository: source files as blocks on a dark beige canvas, import arcs between them, inspect panel on the right." width="1600">
 </p>

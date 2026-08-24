@@ -100,6 +100,12 @@ One canvas, two offscreen layers: static background (grid + arcs) and static for
 
 Hit testing is analytic. `AtlasRenderer.nodeAt` maps the pointer into layout space and calls `hitNode` in `packages/atlas-ui/src/iso.ts`: walk `ordered` back to front, test the pointer against the three quads from `slabFaces` (top, left, right). First containing quad wins. A miss is `null`.
 
+## Guided discovery
+
+The guided tour and dependency-focus controls are pure UI derivations from the visible `Atlas`; they do not alter Atlas serialization or add authored stories, positions, or runtime observations. Area, hub, external-boundary, whole-slice, cone, and directed-path membership come from visible nodes and non-containment import/external links. Traversal excludes containment links, ignores missing endpoints, and keeps deterministic node/link ordering.
+
+Focus labels describe visible-slice topology only. The renderer receives a focus projection for dimming, packet emphasis, and camera fitting, while the Atlas data and its unchanged serialization remain the source of truth. These views do not claim to represent runtime flow or execution traces.
+
 ## The slice
 
 Not every file earns a block. `node_modules`, build output, lockfiles, `.env`, and nested worktree checkouts are dropped outright. Deep directories group into one block. Areas that are overwhelmingly reference material (≥70% tests, migrations, docs, ops scripts) fold to a single block. When a repo still exceeds the node budget, codeville groups *deeper* before it sacrifices whole areas: folding `src/` to save room while a benchmarks folder stays expanded destroys the thing you came to look at. The left rail always says what was left out.

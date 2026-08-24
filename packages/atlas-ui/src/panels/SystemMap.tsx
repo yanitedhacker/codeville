@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import type { Atlas } from '@codeville/core'
 import { searchMatchCount, searchNodes } from '../search.js'
 
@@ -8,9 +9,10 @@ interface Props {
   onArea(id: string | null): void
   onFilter(value: string): void
   onSelect(id: string): void
+  tour?: ReactNode
 }
 
-export function SystemMap({ atlas, activeArea, filter, onArea, onFilter, onSelect }: Props) {
+export function SystemMap({ atlas, activeArea, filter, onArea, onFilter, onSelect, tour }: Props) {
   const total = atlas.nodes.length
   const querying = filter.trim() !== ''
   const matchCount = querying ? searchMatchCount(atlas.nodes, filter) : 0
@@ -33,6 +35,8 @@ export function SystemMap({ atlas, activeArea, filter, onArea, onFilter, onSelec
         <strong>System map</strong>
         <span className="cv-label">Area: {activeArea ?? 'all'}</span>
       </div>
+
+      {tour}
 
       <input
         className="cv-filter"

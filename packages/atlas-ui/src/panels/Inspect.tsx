@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Atlas, AtlasLink, AtlasNode } from '@codeville/core'
-import { describeLink, describeSet } from '@codeville/core/explain/heuristic'
+import { describeLink, describeSet } from '../../../core/src/explain/heuristic.js'
 import { askFlagFragment, chosenAskFn } from './ask-flags.js'
+import { dependencyCone, shortestDependencyPath, type AtlasFocus, type FocusDirection } from '../focus.js'
 
 export type Tab = 'does' | 'built'
 
@@ -19,9 +20,14 @@ interface Props {
   onTab(tab: Tab): void
   /** Single id. Replaces a multi-select set. */
   onSelect(id: string): void
+  focus: AtlasFocus | null
+  focusMessage: string | null
+  onFocus(focus: AtlasFocus): void
+  onFocusMessage(message: string | null): void
+  onClearFocus(): void
 }
 
-export function Inspect({ atlas, target, tab, onTab, onSelect }: Props) {
+export function Inspect({ atlas, target, tab, onTab, onSelect, focus, focusMessage, onFocus, onFocusMessage, onClearFocus }: Props) {
   return (
     <aside className="cv-inspect">
       <div className="cv-inspect-head">
@@ -35,6 +41,15 @@ export function Inspect({ atlas, target, tab, onTab, onSelect }: Props) {
       </div>
 
       <div className="cv-inspect-body">
+        {focus && (
+          <section className="cv-focus-summary">
+            <span className="cv-label">Active focus</span>
+            <h2 className="cv-node-name">{focus.title}</h2>
+            <p className="cv-summary">{focus.note}</p>
+            <button type="button" className="cv-btn" onClick={onClearFocus}>Clear focus</button>
+          </section>
+        )}
+        {focusMessage && <p className="cv-summary" role="status">{focusMessage}</p>}
         {target.type === 'empty' ? (
           <p className="cv-empty">
             Choose a block in the map. The moving packets represent real import relationships, not decorative activity.
@@ -43,7 +58,7 @@ export function Inspect({ atlas, target, tab, onTab, onSelect }: Props) {
           tab === 'does' ? (
             <SetDoes atlas={atlas} nodes={target.nodes} onSelect={onSelect} />
           ) : (
-            <SetBuilt atlas={atlas} nodes={target.nodes} onSelect={onSelect} />
+            <SetBuilt atlas={atlas} nodes={target.nodes} onSelect={onSelect} onFocus={onFocus} onFocusMessage={onFocusMessage} />
           )
         ) : target.type === 'link' ? (
           tab === 'does' ? (
@@ -54,7 +69,7 @@ export function Inspect({ atlas, target, tab, onTab, onSelect }: Props) {
         ) : tab === 'does' ? (
           <WhatItDoes node={target.node} />
         ) : (
-          <HowItsBuilt atlas={atlas} node={target.node} onSelect={onSelect} />
+          <HowItsBuilt atlas={atlas} node={target.node} onSelect={onSelect} onFocus={onFocus} onFocusMessage={onFocusMessage} />
         )}
       </div>
     </aside>
@@ -220,7 +235,7 @@ function copyViaExecCommand(text: string): boolean {
   }
 }
 
-function HowItsBuilt({ atlas, node, onSelect }: { atlas: Atlas; node: AtlasNode; onSelect(id: string): void }) {
+function HowItsBuilt({ atlas, node, onSelect, onFocus, onFocusMessage }: { atlas: Atlas; node: AtlasNode; onSelect(id: string): void; onFocus(focus: AtlasFocus): void; onFocusMessage(message: string | null): void }) {
   const byId = new Map(atlas.nodes.map((n) => [n.id, n]))
   const flows = atlas.links.filter((l) => l.type !== 'containment')
   const outgoing = flows.filter((l) => l.from === node.id)
@@ -230,6 +245,12 @@ function HowItsBuilt({ atlas, node, onSelect }: { atlas: Atlas; node: AtlasNode;
   return (
     <>
       <Identity node={node} />
+
+      <section className="cv-section">
+        <span className="cv-label">Dependency focus</span>
+        <FocusButton direction="dependencies" atlas={atlas} node={node} onFocus={onFocus} onFocusMessage={onFocusMessage} />
+        <FocusButton direction="dependents" atlas={atlas} node={node} onFocus={onFocus} onFocusMessage={onFocusMessage} />
+      </section>
 
       <section className="cv-section">
         <span className="cv-label">Relationships</span>
@@ -269,6 +290,17 @@ function HowItsBuilt({ atlas, node, onSelect }: { atlas: Atlas; node: AtlasNode;
   )
 }
 
+function FocusButton({ direction, atlas, node, onFocus, onFocusMessage }: { direction: FocusDirection; atlas: Atlas; node: AtlasNode; onFocus(focus: AtlasFocus): void; onFocusMessage(message: string | null): void }) {
+  return (
+    <button type="button" className="cv-btn" onClick={() => {
+      onFocusMessage(null)
+      onFocus(dependencyCone(atlas, node.id, direction))
+    }}>
+      {direction === 'dependencies' ? 'Focus dependencies' : 'Focus dependents'}
+    </button>
+  )
+}
+
 function SetDoes({ atlas, nodes, onSelect }: { atlas: Atlas; nodes: AtlasNode[]; onSelect(id: string): void }) {
   const byId = new Map(atlas.nodes.map((n) => [n.id, n]))
   return (
@@ -283,7 +315,7 @@ function SetDoes({ atlas, nodes, onSelect }: { atlas: Atlas; nodes: AtlasNode[];
   )
 }
 
-function SetBuilt({ atlas, nodes, onSelect }: { atlas: Atlas; nodes: AtlasNode[]; onSelect(id: string): void }) {
+function SetBuilt({ atlas, nodes, onSelect, onFocus, onFocusMessage }: { atlas: Atlas; nodes: AtlasNode[]; onSelect(id: string): void; onFocus(focus: AtlasFocus): void; onFocusMessage(message: string | null): void }) {
   const byId = new Map(atlas.nodes.map((n) => [n.id, n]))
   const ids = new Set(nodes.map((n) => n.id))
   const edges = atlas.links.filter((l) => l.type !== 'containment' && ids.has(l.from) && ids.has(l.to))
@@ -291,6 +323,26 @@ function SetBuilt({ atlas, nodes, onSelect }: { atlas: Atlas; nodes: AtlasNode[]
   return (
     <>
       <h2 className="cv-node-name">{nodes.length.toLocaleString('en-US')} blocks</h2>
+      {nodes.length === 2 && (
+        <section className="cv-section">
+          <span className="cv-label">Directed dependency path</span>
+          <button
+            type="button"
+            className="cv-btn"
+            onClick={() => {
+              const result = shortestDependencyPath(atlas, nodes[0]!.id, nodes[1]!.id)
+              if (!result) {
+                onFocusMessage('No directed dependency path in the visible slice.')
+                return
+              }
+              onFocusMessage(null)
+              onFocus(result)
+            }}
+          >
+            Find directed path
+          </button>
+        </section>
+      )}
       <section className="cv-section">
         <span className="cv-label">Selected paths</span>
         <NodeList ids={nodes.map((n) => n.id)} byId={byId} onSelect={onSelect} />

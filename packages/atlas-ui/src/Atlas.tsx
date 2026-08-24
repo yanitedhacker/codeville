@@ -3,8 +3,11 @@ import type { Atlas as AtlasData, AtlasLink, AtlasNode, LayoutMode } from '@code
 import { canvasCommand, startsFlowing } from './keyboard.js'
 import { AtlasRenderer, subLabel } from './renderer.js'
 import { Header } from './panels/Header.js'
+import { GuidedTour } from './panels/GuidedTour.js'
 import { SystemMap } from './panels/SystemMap.js'
 import { Inspect, type InspectTarget, type Tab } from './panels/Inspect.js'
+import { buildTour, type TourChapter } from './tour.js'
+import type { AtlasFocus } from './focus.js'
 import './theme.css'
 
 export interface AtlasProps {
@@ -41,10 +44,30 @@ export function Atlas({ atlas, caption = 'Local source atlas / read-only project
   )
   const [tab, setTab] = useState<Tab>('does')
   const [tip, setTip] = useState<Tip | null>(null)
+  const [tourIndex, setTourIndex] = useState<number | null>(null)
+  const [manualFocus, setManualFocus] = useState<AtlasFocus | null>(null)
+  const [focusMessage, setFocusMessage] = useState<string | null>(null)
 
   const byId = useMemo(() => new Map(atlas.nodes.map((n) => [n.id, n])), [atlas])
+  const chapters = useMemo<TourChapter[]>(() => buildTour(atlas), [atlas])
+  const boundedTourIndex = tourIndex == null || chapters.length === 0
+    ? null
+    : Math.min(Math.max(tourIndex, 0), chapters.length - 1)
+  const activeFocus = boundedTourIndex == null ? manualFocus : chapters[boundedTourIndex] ?? null
   const layoutModeRef = useRef(layoutMode)
   layoutModeRef.current = layoutMode
+
+  useEffect(() => {
+    if (tourIndex != null) {
+      const bounded = chapters.length === 0 ? null : Math.min(Math.max(tourIndex, 0), chapters.length - 1)
+      if (bounded !== tourIndex) setTourIndex(bounded)
+    }
+    const nodeIds = new Set(atlas.nodes.map((node) => node.id))
+    if (manualFocus && !manualFocus.nodeIds.some((id) => nodeIds.has(id))) {
+      setManualFocus(null)
+      setFocusMessage(null)
+    }
+  }, [atlas, chapters, tourIndex, manualFocus])
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -88,8 +111,20 @@ export function Atlas({ atlas, caption = 'Local source atlas / read-only project
   }, [atlas, byId])
 
   useEffect(() => {
-    rendererRef.current?.setView({ selected, selectedLink, hovered, activeArea, filter, flowing })
-  }, [selected, selectedLink, hovered, activeArea, filter, flowing])
+    rendererRef.current?.setView({
+      selected,
+      selectedLink,
+      hovered,
+      activeArea,
+      filter,
+      flowing,
+      focus: activeFocus ? { nodeIds: activeFocus.nodeIds, linkKeys: activeFocus.linkKeys } : null,
+    })
+  }, [selected, selectedLink, hovered, activeArea, filter, flowing, activeFocus])
+
+  useEffect(() => {
+    if (activeFocus) rendererRef.current?.focusNodes(activeFocus.nodeIds)
+  }, [activeFocus, layoutMode])
 
   // Selecting from a list should also bring the block into view. Replaces the set.
   const selectFromList = useCallback((id: string) => {
@@ -112,6 +147,57 @@ export function Atlas({ atlas, caption = 'Local source atlas / read-only project
     if (command.kind === 'pan') renderer.panBy(command.x, command.y)
     else if (command.kind === 'zoom') renderer.zoomBy(command.factor)
     else renderer.resetView()
+  }, [])
+
+  const startTour = useCallback(() => {
+    setTourIndex(chapters.length > 0 ? 0 : null)
+    setManualFocus(null)
+    setFocusMessage(null)
+    setFilter('')
+    setActiveArea(null)
+    setSelectedLink(null)
+  }, [chapters.length])
+
+  const moveTour = useCallback((index: number) => {
+    if (chapters.length === 0) return
+    setTourIndex(Math.min(Math.max(index, 0), chapters.length - 1))
+    setSelected([])
+    setSelectedLink(null)
+    setFocusMessage(null)
+  }, [chapters.length])
+
+  const exitTour = useCallback(() => {
+    setTourIndex(null)
+    setManualFocus(null)
+    setFocusMessage(null)
+    rendererRef.current?.resetView()
+  }, [])
+
+  const applyFocus = useCallback((focus: AtlasFocus) => {
+    setTourIndex(null)
+    setManualFocus(focus)
+    setFocusMessage(null)
+    setFilter('')
+    setActiveArea(null)
+    setSelectedLink(null)
+  }, [])
+
+  const clearFocus = useCallback(() => {
+    setTourIndex(null)
+    setManualFocus(null)
+    setFocusMessage(null)
+    rendererRef.current?.resetView()
+  }, [])
+
+  const resetAll = useCallback(() => {
+    setTourIndex(null)
+    setManualFocus(null)
+    setFocusMessage(null)
+    setActiveArea(null)
+    setFilter('')
+    setSelected([])
+    setSelectedLink(null)
+    rendererRef.current?.resetView()
   }, [])
 
   const target = useMemo((): InspectTarget => {
@@ -138,13 +224,7 @@ export function Atlas({ atlas, caption = 'Local source atlas / read-only project
           setFlowing(false)
           rendererRef.current?.traceOneStep()
         }}
-        onReset={() => {
-          setActiveArea(null)
-          setFilter('')
-          setSelected([])
-          setSelectedLink(null)
-          rendererRef.current?.resetView()
-        }}
+        onReset={resetAll}
       />
 
       <SystemMap
@@ -154,6 +234,7 @@ export function Atlas({ atlas, caption = 'Local source atlas / read-only project
         onArea={setActiveArea}
         onFilter={setFilter}
         onSelect={selectFromList}
+        tour={<GuidedTour chapters={chapters} index={boundedTourIndex} onStart={startTour} onMove={moveTour} onExit={exitTour} />}
       />
 
       <div className="cv-stage" ref={stageRef}>
@@ -195,6 +276,11 @@ export function Atlas({ atlas, caption = 'Local source atlas / read-only project
         tab={tab}
         onTab={setTab}
         onSelect={selectFromList}
+        focus={activeFocus}
+        focusMessage={focusMessage}
+        onFocus={applyFocus}
+        onFocusMessage={setFocusMessage}
+        onClearFocus={clearFocus}
       />
 
       <footer className="cv-footer">

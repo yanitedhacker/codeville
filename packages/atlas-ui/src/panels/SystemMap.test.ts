@@ -19,6 +19,7 @@ describe('SystemMap', () => {
       onArea: () => {},
       onFilter: () => {},
       onSelect: () => {},
+      tour: undefined,
     })
 
     expect(view.type).toBe('aside')
