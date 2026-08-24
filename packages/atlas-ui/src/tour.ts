@@ -37,7 +37,7 @@ export function buildTour(atlas: Atlas): TourChapter[] {
   for (const area of atlas.areas) {
     const areaNodes = new Set(atlas.nodes.filter((node) => node.area === area.id).map((node) => node.id))
     if (!areaNodes.size) continue
-    const areaLinks = links.filter((link) => link.type !== 'containment' && link.from !== link.to && areaNodes.has(link.from) && areaNodes.has(link.to))
+    const areaLinks = links.filter((link) => link.type !== 'containment' && areaNodes.has(link.from) && areaNodes.has(link.to))
     chapters.push(chapter('area', `area:${area.id}`, area.label, `${areaNodes.size} nodes in the ${area.label} area of the visible slice.`, areaNodes, areaLinks.map(atlasLinkKey)))
   }
 

@@ -49,7 +49,7 @@ const links: AtlasLink[] = [
   makeLink('pkg-a', 'pkg-b'),
   makeLink('pkg-b', 'pkg-c'),
   makeLink('pkg-c', 'pkg-d'),
-  makeLink('root-a', 'root-b'),
+  makeLink('app-c', 'app-c'),
   makeLink('app-c', 'ext-a', 'external'),
   makeLink('pkg-a', 'ext-b', 'external'),
   makeLink('app-a', 'app-b', 'containment'),
@@ -77,7 +77,12 @@ describe('guided tour derivation', () => {
       ['area:apps', 'Applications'], ['area:packages', 'Packages'], ['area:root', 'Root'],
     ])
     expect(chapters[0]!.nodeIds).toEqual(['app-a', 'app-b', 'app-c'])
-    expect(chapters[0]!.linkKeys).toEqual(['import\0app-a\0app-b', 'import\0app-b\0app-c'])
+    expect(chapters[0]!.linkKeys).toEqual(['import\0app-a\0app-b', 'import\0app-b\0app-c', 'import\0app-c\0app-c'])
+  })
+
+  it('includes valid internal non-containment self-links in an area chapter', () => {
+    const area = buildTour(atlas()).find((chapter) => chapter.id === 'area:apps')!
+    expect(area.linkKeys).toContain('import\0app-c\0app-c')
   })
 
   it('skips empty declared areas', () => {
@@ -87,7 +92,9 @@ describe('guided tour derivation', () => {
 
   it('ranks at most eight local hubs and includes valid incident links with opposite endpoints', () => {
     const hubs = buildTour(atlas()).find((chapter) => chapter.kind === 'hubs')!
-    expect(hubs.nodeIds).toEqual(['app-a', 'app-b', 'app-c', 'ext-a', 'ext-b', 'pkg-a', 'pkg-b', 'pkg-c', 'pkg-d', 'root-a', 'root-b'])
+    expect(hubs.nodeIds).toEqual(['app-a', 'app-b', 'app-c', 'ext-a', 'ext-b', 'pkg-a', 'pkg-b', 'pkg-c', 'pkg-d', 'root-a'])
+    expect(hubs.nodeIds).toContain('root-a')
+    expect(hubs.nodeIds).not.toContain('root-b')
     expect(hubs.linkKeys).not.toContain('import\0app-a\0missing')
     expect(hubs.linkKeys).toContain('external\0app-c\0ext-a')
     expect(hubs.nodeIds).toContain('ext-a')
@@ -110,9 +117,14 @@ describe('guided tour derivation', () => {
   })
 
   it('deduplicates only adjacent identical projections and preserves final all', () => {
-    const duplicate = buildTour(atlas({ areas: [{ ...areas[0]! }] }))
+    const duplicate = buildTour(atlas({
+      areas: [{ ...areas[0]!, count: 1 }],
+      nodes: [nodes[0]!],
+      links: [],
+    }))
+    expect(duplicate.map((chapter) => chapter.kind)).toEqual(['area', 'all'])
     expect(duplicate.at(-1)?.kind).toBe('all')
-    expect(new Set(duplicate.map((chapter) => chapter.id)).size).toBe(duplicate.length)
+    expect(duplicate.at(-1)?.nodeIds).toEqual(['app-a'])
   })
 
   it('returns one empty all chapter for an empty Atlas', () => {
