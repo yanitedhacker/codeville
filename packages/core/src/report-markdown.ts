@@ -8,12 +8,21 @@ function cell(value: unknown): string {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/\|/g, '\\|')
+    .replace(/[\[\]()]/g, '\\$&')
     .replace(/[\r\n\t]+/g, ' ')
     .trim()
 }
 
 function evidenceLocation(evidence: SourceEvidence): string {
   return `${String(evidence.path)}:${evidence.startLine}-${evidence.endLine}`
+}
+
+function evidenceText(link: AtlasLink): string {
+  if (!link.evidence || link.evidence.length === 0) return 'none'
+  return [...link.evidence]
+    .sort((a, b) => compare(a.path, b.path) || a.startLine - b.startLine || a.endLine - b.endLine || compare(a.specifier, b.specifier) || compare(a.extractor, b.extractor))
+    .map(evidenceLocation)
+    .join(', ')
 }
 
 function table(headers: string[], rows: string[][]): string[] {
@@ -62,10 +71,18 @@ export function renderAtlasMarkdown(atlas: Atlas): string {
     link,
     from: nodePaths.get(link.from) ?? link.from,
     to: nodePaths.get(link.to) ?? link.to,
-  })).sort((a, b) => compare(a.from, b.from) || compare(a.to, b.to) || compare(a.link.type, b.link.type))
+  })).sort((a, b) => {
+    const aFields = [a.from, a.to, a.link.type, a.link.confidence ?? 'unknown', String(a.link.observations ?? 'unknown'), evidenceText(a.link)]
+    const bFields = [b.from, b.to, b.link.type, b.link.confidence ?? 'unknown', String(b.link.observations ?? 'unknown'), evidenceText(b.link)]
+    for (let index = 0; index < aFields.length; index += 1) {
+      const result = compare(aFields[index] ?? '', bFields[index] ?? '')
+      if (result !== 0) return result
+    }
+    return 0
+  })
   lines.push('## Visible dependency links', '')
   lines.push(...table(['From', 'To', 'Type', 'Confidence', 'Observations', 'Evidence locations'], links.map(({ link, from, to }: { link: AtlasLink; from: string; to: string }) => {
-    const evidence = link.evidence && link.evidence.length > 0 ? [...link.evidence].sort((a, b) => compare(a.path, b.path) || a.startLine - b.startLine || a.endLine - b.endLine || compare(a.specifier, b.specifier) || compare(a.extractor, b.extractor)).map(evidenceLocation).join(', ') : 'none'
+    const evidence = evidenceText(link)
     return [cell(from), cell(to), cell(link.type), cell(link.confidence ?? 'unknown'), cell(link.observations ?? 'unknown'), cell(evidence)]
   })), '')
 

@@ -57,4 +57,19 @@ describe('renderAtlasMarkdown', () => {
     expect(reversed).toBe(canonical.replace(/\| Exact files \| 1 \|[\s\S]*?\| Hidden externals \| 0 \|\n/, '| Coverage | unavailable |\n'))
     expect(reversed.indexOf('| Source \\| code |')).toBeLessThan(reversed.indexOf('| Dependencies |'))
   })
+
+  it('canonicalizes duplicate links with identical endpoints and type', () => {
+    const first = { from: 'a.ts', to: 'b.ts', type: 'import' as const, samples: [], confidence: 'heuristic' as const, observations: 2, evidence: [{ path: 'z.ts', startLine: 3, endLine: 3, specifier: 'z', statement: '', extractor: 'line', confidence: 'heuristic' as const }] }
+    const second = { from: 'a.ts', to: 'b.ts', type: 'import' as const, samples: [], confidence: 'exact' as const, observations: 1, evidence: [{ path: 'a.ts', startLine: 1, endLine: 1, specifier: 'a', statement: '', extractor: 'babel', confidence: 'exact' as const }] }
+    const one = renderAtlasMarkdown({ ...atlas, links: [first, second] })
+    const two = renderAtlasMarkdown({ ...atlas, links: [second, first] })
+    expect(two).toBe(one)
+  })
+
+  it('does not turn hostile Markdown paths into clickable links', () => {
+    const hostile = { ...atlas, nodes: atlas.nodes.map(node => node.id === 'a.ts' ? { ...node, path: '[secret](./secret)' } : node), links: atlas.links.map(link => link.evidence ? { ...link, evidence: link.evidence.map(evidence => ({ ...evidence, path: '[secret](./secret)' })) } : link) }
+    const output = renderAtlasMarkdown(hostile)
+    expect(output).toContain('\\[secret\\]\\(./secret\\)')
+    expect(output).not.toContain('[secret](./secret)')
+  })
 })
