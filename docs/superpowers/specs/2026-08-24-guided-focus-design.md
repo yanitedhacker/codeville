@@ -153,4 +153,3 @@ Use strict TDD.
 - Every focus label includes `visible` or `visible slice` where omission could imply completeness.
 - AI summaries never determine chapter membership, graph traversal, or focus results.
 - Add no runtime dependency.
-

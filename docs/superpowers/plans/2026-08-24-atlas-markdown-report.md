@@ -298,4 +298,3 @@ Confirm omission writes no report, `ask` rejects the option, the primary output 
 git add packages/cli/src/index.ts packages/cli/src/args.test.ts README.md docs/architecture.md
 git commit -m "feat: write an opt-in atlas markdown report"
 ```
-
