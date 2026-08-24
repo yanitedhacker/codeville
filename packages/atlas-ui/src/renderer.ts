@@ -1,5 +1,6 @@
 import type { Atlas, AtlasLink, AtlasNode, LayoutMode } from '@codeville/core'
 import { UNIT, arc, bezier, halfWidth, hitLink, hitNode, project, shade, slabFaces, sortByDepth, type Point } from './iso.js'
+import { atlasLinkKey } from './focus.js'
 
 export interface ViewState {
   selected: string[]
@@ -8,6 +9,7 @@ export interface ViewState {
   activeArea: string | null
   filter: string
   flowing: boolean
+  focus: { nodeIds: string[]; linkKeys: string[] } | null
 }
 
 export interface RendererCallbacks {
@@ -53,7 +55,7 @@ export class AtlasRenderer {
   private atlas: Atlas
   private layoutMode: LayoutMode = 'city'
   private activeNodes: AtlasNode[] = []
-  private view: ViewState = { selected: [], selectedLink: null, hovered: null, activeArea: null, filter: '', flowing: true }
+  private view: ViewState = { selected: [], selectedLink: null, hovered: null, activeArea: null, filter: '', flowing: true, focus: null }
 
   private nodeById = new Map<string, AtlasNode>()
   private ordered: AtlasNode[] = []
@@ -163,6 +165,15 @@ export class AtlasRenderer {
     this.layersDirty = true
   }
 
+  focusNodes(ids: string[]): void {
+    const nodes = [...new Set(ids)]
+      .map((id) => this.nodeById.get(id))
+      .filter((node): node is AtlasNode => node != null)
+    if (nodes.length === 0) return
+    this.fitNodes(nodes, false)
+    this.draw()
+  }
+
   /** Debug affordance: reachable as `document.querySelector('canvas').__codeville`. */
   probe(clientX: number, clientY: number): unknown {
     const rect = this.canvas.getBoundingClientRect()
@@ -221,8 +232,12 @@ export class AtlasRenderer {
   }
 
   private fit(): void {
+    this.fitNodes(this.activeNodes, true)
+  }
+
+  private fitNodes(nodes: AtlasNode[], saveHome: boolean): void {
     let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity
-    for (const n of this.activeNodes) {
+    for (const n of nodes) {
       const s = halfWidth(n)
       for (const [dx, dy, dz] of [[-s, -s, n.h], [s, -s, n.h], [s, s, 0], [-s, s, 0]] as const) {
         const p = project(n.x + dx, n.y + dy, dz)
@@ -241,7 +256,7 @@ export class AtlasRenderer {
     if (!Number.isFinite(this.zoom) || this.zoom <= 0) this.zoom = 1
     this.camX = -((minX + maxX) / 2) * this.zoom
     this.camY = -((minY + maxY) / 2) * this.zoom
-    this.home = { x: this.camX, y: this.camY, zoom: this.zoom }
+    if (saveHome) this.home = { x: this.camX, y: this.camY, zoom: this.zoom }
     this.layersDirty = true
   }
 
@@ -308,12 +323,28 @@ export class AtlasRenderer {
       const b = this.nodeById.get(link.to)
       if (!a || !b) continue
       if (this.isLinkHot(link, selectedSet)) { hotLinks.push(link); continue }
-      this.strokeLink(ctx, a, b, link.type, false)
+      this.strokeBackgroundLink(ctx, a, b, link, false)
     }
     for (const link of hotLinks) {
       const a = this.nodeById.get(link.from)!
       const b = this.nodeById.get(link.to)!
-      this.strokeLink(ctx, a, b, link.type, true)
+      this.strokeBackgroundLink(ctx, a, b, link, true)
+    }
+  }
+
+  private strokeBackgroundLink(
+    ctx: CanvasRenderingContext2D,
+    a: AtlasNode,
+    b: AtlasNode,
+    link: AtlasLink,
+    hot: boolean,
+  ): void {
+    const alpha = ctx.globalAlpha
+    if (!linkIsFocused(link, this.view.focus)) ctx.globalAlpha = 0.16
+    try {
+      this.strokeLink(ctx, a, b, link.type, hot)
+    } finally {
+      ctx.globalAlpha = alpha
     }
   }
 
@@ -425,6 +456,7 @@ export class AtlasRenderer {
   private isInFocus(node: AtlasNode, filter: string): boolean {
     if (filter) return node.path.toLowerCase().includes(filter) || node.role.toLowerCase().includes(filter)
     if (this.view.activeArea) return node.area === this.view.activeArea
+    if (this.view.focus) return nodeIsFocused(node.id, this.view.focus)
     return false
   }
 
@@ -495,6 +527,7 @@ export class AtlasRenderer {
     const r = 1.9 / this.zoom
 
     for (const p of this.packets) {
+      if (!linkIsFocused(p.link, this.view.focus)) continue
       const isHot = this.isLinkHot(p.link, selectedSet)
       const { sx, sy } = bezier(p.p0, p.c, p.p1, p.t)
       ctx.beginPath()
@@ -678,12 +711,32 @@ function viewChanged(before: ViewState, next: ViewState): boolean {
     linkKey(before.selectedLink) !== linkKey(next.selectedLink) ||
     before.hovered !== next.hovered ||
     before.activeArea !== next.activeArea ||
-    before.filter !== next.filter
+    before.filter !== next.filter ||
+    focusChanged(before.focus, next.focus)
   )
 }
 
 function linkKey(link: AtlasLink | null): string {
   return link ? `${link.type}\0${link.from}\0${link.to}` : ''
+}
+
+export function nodeIsFocused(id: string, focus: ViewState['focus']): boolean {
+  return focus == null || focus.nodeIds.includes(id)
+}
+
+export function linkIsFocused(link: AtlasLink, focus: ViewState['focus']): boolean {
+  return focus == null || focus.linkKeys.includes(atlasLinkKey(link))
+}
+
+export function focusChanged(before: ViewState['focus'], next: ViewState['focus']): boolean {
+  if (before === next) return false
+  if (before == null || next == null) return true
+  return canonicalFocusPart(before.nodeIds) !== canonicalFocusPart(next.nodeIds) ||
+    canonicalFocusPart(before.linkKeys) !== canonicalFocusPart(next.linkKeys)
+}
+
+function canonicalFocusPart(values: string[]): string {
+  return [...values].sort().join('\0')
 }
 
 export function subLabel(node: AtlasNode): string {
