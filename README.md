@@ -48,8 +48,11 @@ CLI:
 
 ```bash
 pnpm atlas . -o atlas.html
+pnpm atlas . -o atlas.html --report atlas.md
 open atlas.html
 ```
+
+The optional Markdown report is a facts-only visible-slice snapshot. It contains no source excerpts or AI prose.
 
 ## How it fits together
 

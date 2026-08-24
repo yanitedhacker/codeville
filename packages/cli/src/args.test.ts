@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process'
-import { access, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { access, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -61,6 +61,17 @@ describe('parseArgs', () => {
     expect(args?.command).toBe('generate')
     expect(args && args.command === 'generate' && args.out.endsWith('MixedCase-atlas.html')).toBe(true)
   })
+
+  it('parses an opt-in report only for generate', () => {
+    const args = parseArgs(['/tmp/demo-repo', '-o', '/tmp/atlas.json', '--report', '/tmp/atlas.md'])
+    expect(args).toMatchObject({ command: 'generate' })
+    expect(args && args.command === 'generate' ? args.report?.endsWith('/tmp/atlas.md') : false).toBe(true)
+    expect(() => parseArgs(['ask', '/tmp/demo-repo', '--node', 'a.ts', '--fn', 'f', '--question', 'why', '--report', '/tmp/x.md'])).toThrow(/Unknown option --report/)
+  })
+
+  it('requires a report path', () => {
+    expect(() => parseArgs(['/tmp/demo-repo', '--report'])).toThrow(/--report needs a value/)
+  })
 })
 
 describe('CLI', () => {
@@ -93,6 +104,43 @@ describe('CLI', () => {
       expect(`${result.stderr}${result.stdout}`).toMatch(/512KB cap/)
     } finally {
       await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('writes a paired JSON and Markdown report, and omits Markdown when not requested', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'cv-cli-report-'))
+    const dirWithoutReport = await mkdtemp(join(tmpdir(), 'cv-cli-report-'))
+    try {
+      await writeFile(join(dir, 'package.json'), JSON.stringify({ name: dir.split('/').pop() }))
+      await writeFile(join(dir, 'a.ts'), 'export const a = 1\n')
+      const out = join(dir, 'atlas.json')
+      const report = join(dir, 'atlas.md')
+      const result = spawnSync('pnpm', [
+        'exec', 'tsx', 'packages/cli/src/index.ts', dir,
+        '-o', out,
+        '--report', report,
+      ], { cwd: REPO_ROOT, encoding: 'utf8' })
+      expect(result.status).toBe(0)
+      await expect(access(out)).resolves.toBeUndefined()
+      await expect(access(report)).resolves.toBeUndefined()
+      const markdown = await readFile(report, 'utf8')
+      expect(JSON.parse(await readFile(out, 'utf8'))).toHaveProperty('repo')
+      expect(markdown).toContain(`# ${dir.split('/').pop()} — Codeville Atlas`)
+      expect(markdown).toContain('## Scope and coverage')
+      expect(markdown).toContain('## Visible nodes')
+      expect(markdown).toContain('This is a generated visible slice; rolled-up, hidden, unsupported, failed, and unresolved facts may not appear as individual nodes or links.')
+
+      await writeFile(join(dirWithoutReport, 'a.ts'), 'export const a = 1\n')
+      const outputWithoutReport = join(dirWithoutReport, 'atlas.json')
+      const second = spawnSync('pnpm', [
+        'exec', 'tsx', 'packages/cli/src/index.ts', dirWithoutReport,
+        '-o', outputWithoutReport,
+      ], { cwd: REPO_ROOT, encoding: 'utf8' })
+      expect(second.status).toBe(0)
+      await expect(access(join(dirWithoutReport, 'atlas.md'))).rejects.toThrow()
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+      await rm(dirWithoutReport, { recursive: true, force: true })
     }
   })
 })

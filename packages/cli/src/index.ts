@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto'
 import { homedir } from 'node:os'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { buildAtlas, sourceDigest, type Atlas, type VirtualFile } from '../../core/src/index.js'
+import { buildAtlas, renderAtlasMarkdown, sourceDigest, type Atlas, type VirtualFile } from '../../core/src/index.js'
 import { applyExplanations, toRequests, type Explanation } from '../../core/src/explain/index.js'
 import { heuristic } from '../../core/src/explain/heuristic.js'
 import { resolveExplainer } from '../../core/src/explain/adapters.js'
@@ -19,6 +19,7 @@ interface GenerateArgs {
   command: 'generate'
   root: string
   out: string
+  report?: string
   explain: string
   maxNodes?: number
   exclude: string[]
@@ -34,6 +35,7 @@ codeville ask <path-to-repo> --node <file> --fn <name> --question <text> [option
   -o, --out <file>       output path (.html or .json)
                          generate default: <name>-atlas.html
                          ask default: do not write
+      --report <file>     additionally write a facts-only Markdown report
   -e, --explain <spec>   heuristic | codex | claude | openai | anthropic
                          | cli:<command> | module:<path>   default: heuristic
       --max-nodes <n>    visible node budget (includes packages)   default: 220
@@ -103,6 +105,11 @@ async function generate(args: GenerateArgs): Promise<void> {
       }),
     ])
     await write(args.out, renderStandaloneHtml(atlas, js, css))
+  }
+
+  if (args.report) {
+    await write(args.report, renderAtlasMarkdown(atlas))
+    log(`wrote ${args.report}`)
   }
 
   log(`wrote ${args.out} in ${Date.now() - t0}ms`)
@@ -209,6 +216,7 @@ function parseArgs(argv: string[]): CliArgs | null {
 
   let root: string | null = null
   let out: string | null = null
+  let report: string | undefined
   let explainSpec = 'heuristic'
   let maxNodes: number | undefined
   let exclude: string[] = []
@@ -228,6 +236,7 @@ function parseArgs(argv: string[]): CliArgs | null {
     }
     if (arg === '-h' || arg === '--help') return null
     else if (arg === '-o' || arg === '--out') out = next()
+    else if (command === 'generate' && arg === '--report') report = next()
     else if (arg === '-e' || arg === '--explain') explainSpec = next()
     else if (arg === '--max-nodes') {
       const n = Number(next())
@@ -273,6 +282,7 @@ function parseArgs(argv: string[]): CliArgs | null {
     command: 'generate',
     ...shared,
     out: resolve(process.cwd(), out ?? `${slugName(abs.split('/').pop() ?? 'repo')}-atlas.html`),
+    ...(report ? { report: resolve(process.cwd(), report) } : {}),
   }
 }
 

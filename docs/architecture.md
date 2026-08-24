@@ -2,6 +2,8 @@
 
 Everything meets at one type, `Atlas` in `packages/core/src/types.ts`. The analyzer writes it, the renderer reads it, export inlines it. Nothing else crosses that line.
 
+HTML, JSON, and Markdown consume the same analyzed `Atlas`. Markdown is a pure formatter, and the CLI `--report` option never triggers a second scan or explainer pass.
+
 ```
 packages/core/       analyzer — pure TS, no DOM, runs in the browser and in node
   scan.ts              files in → records out, with the ignore rules
