@@ -127,7 +127,7 @@ export class AtlasRenderer {
     this.canvas.style.width = `${width}px`
     this.canvas.style.height = `${height}px`
     this.fit()
-    if (this.view.focus) this.focusNodes(this.view.focus.nodeIds)
+    if (this.view.focus) this.fitFocusedNodes(this.view.focus.nodeIds)
     // Paint now rather than waiting for RAF: in a background tab RAF never fires,
     // which would leave the page blank and hit-testing dead until it is focused.
     this.draw()
@@ -167,12 +167,17 @@ export class AtlasRenderer {
   }
 
   focusNodes(ids: string[]): void {
+    if (!this.fitFocusedNodes(ids)) return
+    this.draw()
+  }
+
+  private fitFocusedNodes(ids: string[]): boolean {
     const nodes = [...new Set(ids)]
       .map((id) => this.nodeById.get(id))
       .filter((node): node is AtlasNode => node != null)
-    if (nodes.length === 0) return
+    if (nodes.length === 0) return false
     this.fitNodes(nodes, false)
-    this.draw()
+    return true
   }
 
   /** Debug affordance: reachable as `document.querySelector('canvas').__codeville`. */

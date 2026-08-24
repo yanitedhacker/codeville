@@ -89,7 +89,9 @@ describe('renderer focus projection helpers', () => {
     ;(renderer as unknown as { draw: ReturnType<typeof vi.fn> }).draw = vi.fn()
     renderer.setView({ focus: focus(['left'], []) })
 
+    ;((renderer as unknown as { draw: ReturnType<typeof vi.fn> }).draw).mockClear()
     renderer.resize(320, 220)
+    expect((renderer as unknown as { draw: ReturnType<typeof vi.fn> }).draw).toHaveBeenCalledTimes(1)
     const firstHome = { ...(renderer as any).home }
     expect({ x: (renderer as any).camX, y: (renderer as any).camY, zoom: (renderer as any).zoom }).not.toEqual(firstHome)
 

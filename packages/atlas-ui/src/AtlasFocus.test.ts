@@ -11,6 +11,7 @@ const harness = vi.hoisted(() => {
     inspectProps: null as Record<string, any> | null,
     systemMapProps: null as Record<string, any> | null,
     canvasProps: null as Record<string, any> | null,
+    rendererRef: null as { current: any } | null,
     renderers: [] as Array<{ setView: ReturnType<typeof vi.fn>; focusNodes: ReturnType<typeof vi.fn>; focusNode: ReturnType<typeof vi.fn>; setLayout: ReturnType<typeof vi.fn>; resize: ReturnType<typeof vi.fn>; dispose: ReturnType<typeof vi.fn>; resetView: ReturnType<typeof vi.fn> }>,
   }
 
@@ -58,6 +59,7 @@ const harness = vi.hoisted(() => {
       slots[index] = slot
     }
     refOrdinal++
+    if (refOrdinal === 3) harness.state.rendererRef = slot.value as { current: any }
     return slot.value as { current: T }
   }
 
@@ -92,6 +94,7 @@ const harness = vi.hoisted(() => {
     state.inspectProps = null
     state.systemMapProps = null
     state.canvasProps = null
+    state.rendererRef = null
     state.renderers.length = 0
   }
 
@@ -275,5 +278,36 @@ describe('Atlas renderer focus synchronization', () => {
     }))
     expect(harness.state.inspectProps!.focus).toBeNull()
     expect(harness.state.inspectProps!.focusMessage).toBeNull()
+  })
+
+  it('clears state for canvas 0 when the renderer ref is null', () => {
+    const fixture = makeAtlas([node('root'), node('child')])
+    const focus: AtlasFocus = {
+      id: 'path:root:child',
+      title: 'root.ts → child.ts',
+      note: '2 nodes in the visible slice.',
+      nodeIds: ['root', 'child'],
+      linkKeys: ['import\0root\0child'],
+    }
+
+    render(fixture)
+    harness.state.inspectProps!.onFocus(focus)
+    harness.state.inspectProps!.onFocusMessage('focused')
+    harness.state.systemMapProps!.onFilter('root')
+    harness.state.systemMapProps!.onArea('src')
+    harness.state.systemMapProps!.onSelect('root')
+    render(fixture)
+    harness.state.rendererRef!.current = null
+
+    const preventDefault = vi.fn()
+    harness.state.canvasProps!.onKeyDown({ key: '0', preventDefault })
+    render(fixture)
+
+    expect(preventDefault).toHaveBeenCalledTimes(1)
+    expect(harness.state.inspectProps!.focus).toBeNull()
+    expect(harness.state.inspectProps!.focusMessage).toBeNull()
+    expect(harness.state.systemMapProps!.filter).toBe('')
+    expect(harness.state.systemMapProps!.activeArea).toBeNull()
+    expect(harness.state.inspectProps!.target.type).toBe('empty')
   })
 })

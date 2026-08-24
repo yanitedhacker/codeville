@@ -77,7 +77,11 @@ describe('renderAtlasMarkdown', () => {
     const hostile = {
       ...atlas,
       repo: { ...atlas.repo, name: String.raw`\[x\]\(./x\)`, note: String.raw`\| cell` },
-      nodes: atlas.nodes.map((node) => node.id === 'a.ts' ? { ...node, path: String.raw`\[x\]\(./x\)` } : node),
+      nodes: atlas.nodes.map((node) => node.id === 'a.ts'
+        ? { ...node, path: String.raw`\[x\]\(./x\)` }
+        : node.id === 'b.ts'
+          ? { ...node, role: String.raw`\| role` }
+          : node),
     }
     const output = renderAtlasMarkdown(hostile)
     expect(output).toContain(String.raw`\\\[x\\\]\\\(./x\\\)`)
@@ -86,5 +90,7 @@ describe('renderAtlasMarkdown', () => {
     const noteLine = output.split('\n').find((line) => line.startsWith('- Note:'))
     expect(noteLine).toBe(String.raw`- Note: \\\| cell`)
     expect(noteLine).not.toMatch(/(?<!\\)\|/)
+    const tableLine = output.split('\n').find((line) => line.startsWith('| b.ts |'))
+    expect(tableLine).toBe(String.raw`| b.ts | file | \\\| role | src | 20 | 1 | 1 |  |`)
   })
 })

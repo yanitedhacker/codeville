@@ -146,11 +146,14 @@ export function Atlas({ atlas, caption = 'Local source atlas / read-only project
     const command = canvasCommand(e.key)
     if (!command) return
     e.preventDefault()
+    if (command.kind === 'reset') {
+      resetAll()
+      return
+    }
     const renderer = rendererRef.current
     if (!renderer) return
     if (command.kind === 'pan') renderer.panBy(command.x, command.y)
     else if (command.kind === 'zoom') renderer.zoomBy(command.factor)
-    else resetAll()
   }, [])
 
   const startTour = useCallback(() => {
