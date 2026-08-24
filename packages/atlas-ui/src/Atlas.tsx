@@ -150,7 +150,7 @@ export function Atlas({ atlas, caption = 'Local source atlas / read-only project
     if (!renderer) return
     if (command.kind === 'pan') renderer.panBy(command.x, command.y)
     else if (command.kind === 'zoom') renderer.zoomBy(command.factor)
-    else renderer.resetView()
+    else resetAll()
   }, [])
 
   const startTour = useCallback(() => {

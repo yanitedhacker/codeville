@@ -9,7 +9,9 @@ const harness = vi.hoisted(() => {
   const pending: number[] = []
   const state = {
     inspectProps: null as Record<string, any> | null,
-    renderers: [] as Array<{ setView: ReturnType<typeof vi.fn>; focusNodes: ReturnType<typeof vi.fn>; setLayout: ReturnType<typeof vi.fn>; resize: ReturnType<typeof vi.fn>; dispose: ReturnType<typeof vi.fn> }>,
+    systemMapProps: null as Record<string, any> | null,
+    canvasProps: null as Record<string, any> | null,
+    renderers: [] as Array<{ setView: ReturnType<typeof vi.fn>; focusNodes: ReturnType<typeof vi.fn>; focusNode: ReturnType<typeof vi.fn>; setLayout: ReturnType<typeof vi.fn>; resize: ReturnType<typeof vi.fn>; dispose: ReturnType<typeof vi.fn>; resetView: ReturnType<typeof vi.fn> }>,
   }
 
   function beginRender() {
@@ -88,6 +90,8 @@ const harness = vi.hoisted(() => {
     pending.length = 0
     slots.length = 0
     state.inspectProps = null
+    state.systemMapProps = null
+    state.canvasProps = null
     state.renderers.length = 0
   }
 
@@ -103,13 +107,19 @@ vi.mock('react', () => ({
 }))
 
 vi.mock('react/jsx-runtime', () => {
-  const render = (type: unknown, props: Record<string, any>) => typeof type === 'function' ? type(props) : { type, props }
+  const render = (type: unknown, props: Record<string, any>) => {
+    if (type === 'canvas' || props?.className === 'cv-canvas') harness.state.canvasProps = props
+    return typeof type === 'function' ? type(props) : { type, props }
+  }
   return { Fragment: Symbol.for('react.fragment'), jsx: render, jsxs: render }
 })
 
 vi.mock('./panels/Header.js', () => ({ Header: () => null }))
 vi.mock('./panels/GuidedTour.js', () => ({ GuidedTour: () => null }))
-vi.mock('./panels/SystemMap.js', () => ({ SystemMap: () => null }))
+vi.mock('./panels/SystemMap.js', () => ({ SystemMap: (props: Record<string, any>) => {
+  harness.state.systemMapProps = props
+  return null
+} }))
 vi.mock('./panels/Inspect.js', () => ({ Inspect: (props: Record<string, any>) => {
   harness.state.inspectProps = props
   return null
@@ -119,9 +129,11 @@ vi.mock('./renderer.js', () => ({
   AtlasRenderer: class FakeAtlasRenderer {
     setView = vi.fn()
     focusNodes = vi.fn()
+    focusNode = vi.fn()
     setLayout = vi.fn()
     resize = vi.fn()
     dispose = vi.fn()
+    resetView = vi.fn()
 
     constructor() {
       harness.state.renderers.push(this)
@@ -190,6 +202,7 @@ function realize(value: any): void {
     for (const child of value) realize(child)
     return
   }
+  if (value.type === 'canvas') harness.state.canvasProps = value.props
   if (typeof value.type === 'function') {
     realize(value.type(value.props))
     return
@@ -224,5 +237,43 @@ describe('Atlas renderer focus synchronization', () => {
     }))
     expect(replacementRenderer.focusNodes).toHaveBeenCalledTimes(1)
     expect(replacementRenderer.focusNodes).toHaveBeenCalledWith(['child', 'root'])
+  })
+
+  it('routes canvas 0 through the full reset state and renderer reset path', () => {
+    const fixture = makeAtlas([node('root'), node('child')])
+    const focus: AtlasFocus = {
+      id: 'path:root:child',
+      title: 'root.ts → child.ts',
+      note: '2 nodes in the visible slice.',
+      nodeIds: ['root', 'child'],
+      linkKeys: ['import\0root\0child'],
+    }
+
+    render(fixture)
+    harness.state.inspectProps!.onFocus(focus)
+    harness.state.inspectProps!.onFocusMessage('focused')
+    harness.state.systemMapProps!.onFilter('root')
+    harness.state.systemMapProps!.onArea('src')
+    harness.state.systemMapProps!.onSelect('root')
+    render(fixture)
+
+    const renderer = harness.state.renderers[0]!
+    renderer.setView.mockClear()
+    renderer.resetView.mockClear()
+    const preventDefault = vi.fn()
+    harness.state.canvasProps!.onKeyDown({ key: '0', preventDefault })
+    render(fixture)
+
+    expect(preventDefault).toHaveBeenCalledTimes(1)
+    expect(renderer.resetView).toHaveBeenCalledTimes(1)
+    expect(renderer.setView).toHaveBeenCalledWith(expect.objectContaining({
+      selected: [],
+      selectedLink: null,
+      activeArea: null,
+      filter: '',
+      focus: null,
+    }))
+    expect(harness.state.inspectProps!.focus).toBeNull()
+    expect(harness.state.inspectProps!.focusMessage).toBeNull()
   })
 })

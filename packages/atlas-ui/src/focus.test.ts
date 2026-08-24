@@ -130,7 +130,16 @@ describe('dependency focus primitives', () => {
     const forward = dependencyCone(atlas, 'a', 'dependencies')
     const reversed = dependencyCone(makeAtlas(true), 'a', 'dependencies')
     expect(focusProjectionKey(forward)).toBe(focusProjectionKey(reversed))
-    expect(focusProjectionKey({ nodeIds: ['b', 'a'], linkKeys: ['z', 'a'] })).toBe('a\0b\0a\0z')
+    const permutedNodeIds = ['b', 'a']
+    const permutedLinkKeys = ['z', 'a']
+    const nodeIdsSnapshot = [...permutedNodeIds]
+    const linkKeysSnapshot = [...permutedLinkKeys]
+    const permuted = { nodeIds: permutedNodeIds, linkKeys: permutedLinkKeys }
+    const equivalent = { nodeIds: ['a', 'b'], linkKeys: ['a', 'z'] }
+    expect(focusProjectionKey(permuted)).toBe('a\0b\0a\0z')
+    expect(focusProjectionKey(permuted)).toBe(focusProjectionKey(equivalent))
+    expect(permutedNodeIds).toEqual(nodeIdsSnapshot)
+    expect(permutedLinkKeys).toEqual(linkKeysSnapshot)
     expect(focusProjectionKey(null)).toBe('')
     expect(atlas.nodes).toEqual(nodes)
     expect(atlas.links).toEqual(links)
