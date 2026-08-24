@@ -24,11 +24,22 @@
   <a href="CONTRIBUTING.md">Contributing</a>
 </p>
 
-Point it at a repository. It emits an interactive isometric atlas as one HTML file. Supported source files become blocks; parser-confirmed and heuristic imports become inspectable arcs. The atlas reports unsupported files, unresolved imports, and roll-ups instead of hiding them. Click a block, read the file. Pan the map.
+Point it at a repository. It emits an interactive isometric atlas as one HTML file. Supported source files become blocks; parser-confirmed and heuristic imports become inspectable arcs. The atlas reports unsupported files, unresolved imports, and roll-ups instead of hiding them. Click a block to inspect its role, source excerpt, symbols, and relationships. Pan the map.
 
 You cannot hold a 400-file tree in your head. A map you can pan is the point. If you want to *see* a codebase instead of grep it, this is it.
 
-The guided tour and dependency focus are derived from the visible import topology. Dependency cones and directed paths describe the visible slice; they are not runtime traces or execution-flow analysis.
+The guided tour, dependency focus/cones, directed paths, and `Trace one step` are based on visible static import topology. They are not runtime instrumentation, runtime traces, or execution-flow analysis.
+
+## Features
+
+- Map controls include City and Dependencies projections, drag or arrow-key panning, scroll or `+`/`-` zoom, `0` reset, flow pause/resume, and Reset view. `Trace one step` advances each displayed import packet once; it does not step program execution.
+- Search ranks visible nodes by file path, node label, role, or symbol. The coverage panel reports exact, heuristic, unsupported, unresolved, rolled-up, and hidden-external counts when coverage data is available.
+- Select a node and focus its dependencies or dependents to inspect a topology-derived cone. Select two nodes with Shift-click and use Find directed path to show a shortest directed path in the visible slice.
+- The guided tour walks the visible areas, dependency hubs, external boundary, and whole system. It is derived from the same static atlas data.
+- Select an arc to inspect its endpoints, extraction confidence, source locations, and sample import statements.
+- The browser can export the current atlas as one standalone HTML file. The downloaded file inlines the atlas, JavaScript, and CSS and makes no network requests when opened offline.
+
+Folders and zip archives are read in the browser. The GitHub input route fetches the archive through the server; after analysis, the exported HTML is self-contained.
 
 <p align="center">
   <img src="docs/assets/atlas.png" alt="Isometric atlas of this repository: source files as blocks on a dark beige canvas, import arcs between them, inspect panel on the right." width="1600">
@@ -50,11 +61,23 @@ CLI:
 
 ```bash
 pnpm atlas . -o atlas.html
+pnpm atlas . -o atlas.json
 pnpm atlas . -o atlas.html --report atlas.md
+pnpm atlas ask . --node packages/core/src/graph.ts --fn buildGraph \
+  --question "What does this function contribute to the graph?"
 open atlas.html
 ```
 
-The optional Markdown report is a facts-only visible-slice snapshot. It contains no source excerpts or AI prose.
+`-o` writes standalone HTML for `.html` paths or the atlas data as pretty-printed JSON for `.json` paths. The default is `<repo>-atlas.html`. The optional `--report` output is a facts-only Markdown snapshot of the visible slice; it contains no source excerpts or AI prose. HTML export requires the standalone bundle, built with `pnpm -F @codeville/atlas-ui build`.
+
+`codeville ask <path-to-repo> --node <repo-relative-file> --fn <outline-symbol> --question <text>` prints an answer about a named symbol in its atlas context. The symbol must appear in that file's extracted outline. Pass `--atlas atlas.json` to reuse a generated JSON atlas instead of rebuilding it. The ask command does not execute code or collect runtime evidence.
+
+Common generation options:
+
+- `--max-nodes <n>` limits the visible node budget (default `220`, including packages); a file and its area slab may exceed the budget by one.
+- `--exclude <paths>` drops comma-separated path prefixes.
+- `--no-cache` bypasses the cache under `~/.cache/codeville`.
+- `-j, --concurrency <n>` controls parallel explainer calls (default `4` for CLI adapters and `6` for API adapters).
 
 ## How it fits together
 
@@ -62,6 +85,10 @@ The optional Markdown report is a facts-only visible-slice snapshot. It contains
 - GitHub paste is the only server fetch (codeload), because that host has no CORS.
 - CLI writes one HTML file. Open it from `file://`. Zero network.
 - AI explainers are optional and only add a summary sentence. They never replace derived fields. CLI adapters use a binary you already signed into.
+
+## Inspiration
+
+Codeville draws inspiration from [inkboard/system-atlas](https://github.com/inkboard/system-atlas), including its isometric visual grammar, progressive-disclosure tours, and explorable system maps. Codeville uses its own repository analyzer, data model, renderer, CLI, and offline export pipeline.
 
 ## Exact versus heuristic extraction
 
