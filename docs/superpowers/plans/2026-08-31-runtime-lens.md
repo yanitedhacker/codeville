@@ -1010,6 +1010,71 @@ git commit -m "feat(cli): export runtime lens offline"
 
 ---
 
+### Integration correction: preserve the planned exact runtime source node
+
+Task 10's first fresh whole-repository export found that the public fixture's
+`packages/core/src/runtime/index.ts` path was scanned but not visible. The Atlas
+default roll-up depth of 3 replaced that file with the `packages/core/src`
+directory node before exact runtime correlation ran. Raising `--max-nodes` did
+not change this result. A read-only probe with roll-up depth 4 produced 129
+visible nodes, stayed below the unchanged 220-node budget, preserved the exact
+file node, and changed `unmatchedSourceSpans` from 1 to 0.
+
+Do not weaken exact-file correlation, rewrite the public fixture to a shallower
+path, or treat a directory slab as an exact source match. Correct the Atlas
+default at the source. The existing node-budget loop must remain able to reduce
+depth for large repositories.
+
+**Files:**
+
+- Modify: `packages/core/src/atlas.test.ts`
+- Modify: `packages/core/src/graph.ts`
+
+- [ ] **Step 1: Write the failing default-visibility regression**
+
+Add a behavior-level test that builds an Atlas containing
+`packages/core/src/runtime/index.ts` without an explicit `rollupDepth`. Require
+that the path remains one visible `kind: 'file'` node while the default node
+budget has room. Keep the existing wide-repository node-budget regression.
+
+- [ ] **Step 2: Confirm the regression fails for the proven reason**
+
+Run: `pnpm test -- packages/core/src/atlas.test.ts`
+
+Expected before the correction: FAIL because the target is represented only by
+`dir:packages/core/src`.
+
+- [ ] **Step 3: Apply the single root-cause correction**
+
+Change only `DEFAULT_ROLLUP_DEPTH` from 3 to 4. Do not change the 220-node
+default, exact-correlation rules, fixture paths, or roll-up budget fallback.
+
+- [ ] **Step 4: Verify source correlation and graph safety**
+
+Run separately:
+
+```bash
+pnpm test -- packages/core/src/atlas.test.ts
+pnpm test -- packages/core/src/runtime/correlate.test.ts packages/cli/src/args.test.ts
+pnpm test
+pnpm typecheck
+pnpm fidelity
+pnpm realrepo .
+```
+
+Regenerate both Task 10 HTML artifacts and require the exact
+`packages/core/src/runtime/index.ts` file node, one matched source span, and
+`unmatchedSourceSpans = 0` before any browser claim.
+
+- [ ] **Step 5: Commit the integration correction**
+
+```bash
+git add packages/core/src/atlas.test.ts packages/core/src/graph.ts
+git commit -m "fix(core): preserve exact runtime source nodes"
+```
+
+---
+
 ### Task 10: Document and verify Runtime Lens end to end
 
 **Files:**
