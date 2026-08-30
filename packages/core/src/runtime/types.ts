@@ -1,0 +1,58 @@
+export interface RuntimeImportLimits {
+  maxInputBytes: number
+  maxJsonLineBytes: number
+  maxTraces: number
+  maxSpans: number
+  maxSpansPerTrace: number
+  maxResourceScopeGroups: number
+  maxAttributes: number
+  maxEventsPerSpan: number
+  maxLinksPerSpan: number
+  maxAttributeDepth: number
+  maxValueBytes: number
+}
+
+export const DEFAULT_RUNTIME_IMPORT_LIMITS: Readonly<RuntimeImportLimits> = {
+  maxInputBytes: 25 * 1024 * 1024,
+  maxJsonLineBytes: 8 * 1024 * 1024,
+  maxTraces: 10_000,
+  maxSpans: 50_000,
+  maxSpansPerTrace: 20_000,
+  maxResourceScopeGroups: 2_000,
+  maxAttributes: 128,
+  maxEventsPerSpan: 256,
+  maxLinksPerSpan: 128,
+  maxAttributeDepth: 8,
+  maxValueBytes: 16 * 1024,
+}
+
+export interface RuntimeAttribute {
+  key: string
+  value: RuntimeValue
+}
+
+export type RuntimeValue =
+  | { type: 'string'; value: string }
+  | { type: 'bool'; value: boolean }
+  | { type: 'int'; value: string }
+  | { type: 'double'; value: number }
+  | { type: 'bytes'; value: string }
+  | { type: 'array'; value: RuntimeValue[] }
+  | { type: 'kvlist'; value: RuntimeAttribute[] }
+  | { type: 'redacted' }
+
+export class RuntimeImportError extends Error {
+  constructor(
+    public readonly code: 'syntax' | 'schema' | 'limit' | 'identity' | 'time' | 'conflict',
+    message: string,
+    public readonly limit?: keyof RuntimeImportLimits,
+    public readonly actual?: number,
+  ) {
+    super(message)
+    this.name = 'RuntimeImportError'
+  }
+
+  static limit(limit: keyof RuntimeImportLimits, actual: number): RuntimeImportError {
+    return new RuntimeImportError('limit', `Runtime trace exceeds ${limit} (${actual}).`, limit, actual)
+  }
+}
