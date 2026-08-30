@@ -284,7 +284,7 @@ style-src 'unsafe-inline'; script-src 'unsafe-inline';
 font-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'
 ```
 
-The downloaded file contains no external asset, network receiver, or remote URL. It opens through `file://` and supports both Static Atlas and Runtime Lens.
+The downloaded file contains no external asset, external resource reference, or network receiver. Inert recorded evidence such as an OTLP schema URL remains visible as text but is never used as a fetch target. The file opens through `file://` and supports both Static Atlas and Runtime Lens.
 
 The export action says that it includes sanitized telemetry. The bundle report and all completeness warnings remain visible after export.
 

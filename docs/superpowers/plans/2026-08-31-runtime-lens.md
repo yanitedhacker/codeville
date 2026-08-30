@@ -938,9 +938,10 @@ it('embeds sanitized runtime data with CSP and no script breakout', () => {
   const runtime = bundleWithSpanName('</script><script>globalThis.pwned=1</script>')
   const html = renderStandaloneHtml(atlas, 'window.rendered=true', '.x{}', runtime)
   expect(html).toContain("default-src 'none'")
+  expect(html).toContain("connect-src 'none'")
   expect(html).toContain('window.__CODEVILLE_RUNTIME__=')
   expect(html).not.toContain('</script><script>globalThis.pwned')
-  expect(html).not.toMatch(/<script[^>]+src=|<link[^>]+href=|https?:\/\//)
+  expect(html).not.toMatch(/<script[^>]+src=|<link[^>]+href=|@import\s+url|url\(\s*['"]?https?:\/\//i)
 })
 
 it('keeps the legacy three-argument export contract', () => {
@@ -957,6 +958,8 @@ it('parses trace flags and rejects trace plus JSON output', () => {
 ```
 
 Add CLI tests that generate HTML once from `fixtures/runtime/minimal-otlp.json` and once from `fixtures/runtime/minimal-otlp.jsonl`, assert equivalent non-zero trace and span counts, and assert both files contain a sanitized runtime payload. Add a report test that uses `--trace` with `--report` and asserts the Markdown says runtime trace data is not included. Add an App harness assertion that the export action says `includes sanitized telemetry` when a runtime bundle exists and keeps the current static wording when it does not.
+
+The real CLI HTML tests require the ignored standalone JS/CSS assets. In `args.test.ts`, build `@codeville/atlas-ui` once in suite setup and fail the suite if that build fails. Do not rely on a developer's existing ignored files: clean CI runs `pnpm test` before its separate Atlas UI build. External-resource assertions scan network-capable HTML/CSS references such as `script[src]`, `link[href]`, remote `@import`, and remote `url(...)`; they do not reject inert recorded schema URLs or the UI bundle's namespace strings. CSP `connect-src 'none'` remains mandatory.
 
 - [ ] **Step 2: Run focused export and CLI tests and confirm failures**
 
@@ -996,7 +999,7 @@ pnpm atlas . --trace fixtures/runtime/minimal-otlp.json --trace-source-root "$PW
 pnpm atlas . --trace fixtures/runtime/minimal-otlp.jsonl --trace-source-root "$PWD" -o /tmp/codeville-runtime-atlas-jsonl.html
 ```
 
-Expected: both commands exit 0, log the same non-zero trace/span counts, and write HTML files that contain `__CODEVILLE_RUNTIME__` and no external script or stylesheet URL.
+Expected: both commands exit 0, log the same non-zero trace/span counts, and write HTML files that contain `__CODEVILLE_RUNTIME__`, contain no raw redacted secret, and contain no external script, stylesheet, CSS import, or CSS URL reference. Inert recorded URLs may remain evidence text.
 
 - [ ] **Step 5: Commit offline and CLI integration**
 
