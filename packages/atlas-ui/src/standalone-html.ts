@@ -1,15 +1,26 @@
-import type { Atlas } from '@codeville/core'
+import type { Atlas, RuntimeTraceBundle } from '@codeville/core'
+
+const CONTENT_SECURITY_POLICY = "default-src 'none'; connect-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; font-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"
 
 /**
  * Wraps a bundle + an atlas into one self-contained page: no network requests,
  * no external assets. Shared by the web export button and the CLI.
  */
-export function renderStandaloneHtml(atlas: Atlas, js: string, css: string): string {
+export function renderStandaloneHtml(
+  atlas: Atlas,
+  js: string,
+  css: string,
+  runtime?: RuntimeTraceBundle,
+): string {
+  const runtimePayload = runtime === undefined
+    ? ''
+    : `\n<script>window.__CODEVILLE_RUNTIME__=${embedJson(runtime)}</script>`
   return `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="${CONTENT_SECURITY_POLICY}">
 <title>${escapeHtml(atlas.repo.name)} — codeville</title>
 <style>
 *,*::before,*::after{box-sizing:border-box}
@@ -20,7 +31,7 @@ ${css}
 </head>
 <body>
 <div id="root"></div>
-<script>window.__CODEVILLE_ATLAS__=${embedJson(atlas)}</script>
+<script>window.__CODEVILLE_ATLAS__=${embedJson(atlas)}</script>${runtimePayload}
 <script>${js}</script>
 </body>
 </html>

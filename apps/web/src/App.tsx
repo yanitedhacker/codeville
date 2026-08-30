@@ -97,7 +97,12 @@ export function App() {
   if (atlas) {
     const footerExtra = (
       <>
-        <button className="cv-inline-btn" onClick={() => exportAtlas(atlas)}>Export html</button>
+        <button
+          className="cv-inline-btn"
+          onClick={() => runtime ? exportAtlas(atlas, runtime) : exportAtlas(atlas)}
+        >
+          {runtime ? 'Export HTML (includes sanitized telemetry)' : 'Export html'}
+        </button>
         <button
           className="cv-inline-btn"
           onClick={() => {

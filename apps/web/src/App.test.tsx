@@ -97,6 +97,7 @@ vi.mock('./ingest/index.js', () => ({
 
 const runtimeA = runtimeBundle('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa')
 const runtimeB = runtimeBundle('bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb')
+const runtimeEmpty = runtimeBundle()
 
 let App: () => unknown
 let RuntimeImportDialog: (props: {
@@ -163,6 +164,8 @@ describe('App runtime import transaction', () => {
     expect(harness.state.atlasProps?.runtime).toBe(runtimeA)
     expect(harness.state.dialogProps).toEqual(expect.objectContaining({ busy: true, error: null }))
     expect(harness.state.atlasProps?.runtime).not.toBe(runtimeB)
+    clickFooter('Export HTML (includes sanitized telemetry)')
+    expect(boundaries.exportAtlas).toHaveBeenLastCalledWith(acceptedAtlas, runtimeA)
 
     rejectB(new RuntimeImportError('syntax', 'Runtime trace input is not valid JSON.'))
     await replacing
@@ -174,6 +177,8 @@ describe('App runtime import transaction', () => {
       error: 'Runtime trace input is not valid JSON.',
     }))
     expect(harness.state.atlasProps?.runtime).not.toBe(runtimeB)
+    clickFooter('Export HTML (includes sanitized telemetry)')
+    expect(boundaries.exportAtlas).toHaveBeenLastCalledWith(acceptedAtlas, runtimeA)
   })
 
   it('maps unknown failures to the fixed safe message and keeps the dialog available', async () => {
@@ -223,6 +228,28 @@ describe('App runtime import transaction', () => {
     renderApp()
     expect(harness.state.atlasProps).not.toHaveProperty('runtime')
     expect(harness.state.dialogProps).toBeNull()
+  })
+})
+
+describe('App export', () => {
+  it('preserves static export and includes an accepted empty sanitized runtime bundle', async () => {
+    await openRepository()
+    const acceptedAtlas = harness.state.atlasProps!.atlas
+
+    expect(buttons(harness.state.atlasProps?.footerExtra).map(buttonText)).toContain('Export html')
+    clickFooter('Export html')
+    expect(boundaries.exportAtlas).toHaveBeenLastCalledWith(acceptedAtlas)
+
+    boundaries.ingestRuntimeFile.mockResolvedValueOnce(runtimeEmpty)
+    openImportDialog()
+    await harness.state.dialogProps!.onImport(file('empty.json'))
+    renderApp()
+
+    const labels = buttons(harness.state.atlasProps?.footerExtra).map(buttonText)
+    expect(labels).toContain('Export HTML (includes sanitized telemetry)')
+    expect(labels).not.toContain('Export html')
+    clickFooter('Export HTML (includes sanitized telemetry)')
+    expect(boundaries.exportAtlas).toHaveBeenLastCalledWith(acceptedAtlas, runtimeEmpty)
   })
 })
 
@@ -344,11 +371,11 @@ function file(name: string) {
   return { name, size: 2, arrayBuffer: async () => new ArrayBuffer(2) } as File
 }
 
-function runtimeBundle(traceId: string): RuntimeTraceBundle {
+function runtimeBundle(traceId?: string): RuntimeTraceBundle {
   return {
     version: 1,
     format: 'otlp-json',
-    traces: [{
+    traces: traceId === undefined ? [] : [{
       traceId,
       startTimeUnixNano: '1',
       endTimeUnixNano: '2',
@@ -363,7 +390,7 @@ function runtimeBundle(traceId: string): RuntimeTraceBundle {
     report: {
       documents: 1,
       resourceScopeGroups: 0,
-      traces: 1,
+      traces: traceId === undefined ? 0 : 1,
       inputSpans: 0,
       spans: 0,
       duplicateSpans: 0,
