@@ -8,11 +8,12 @@ interface Props {
   onToggleFlow(): void
   onTrace(): void
   onReset(): void
+  onShowRuntime?: () => void
 }
 
 const n = (v: number): string => v.toLocaleString('en-US')
 
-export function Header({ atlas, layoutMode, flowing, onLayout, onToggleFlow, onTrace, onReset }: Props) {
+export function Header({ atlas, layoutMode, flowing, onLayout, onToggleFlow, onTrace, onReset, onShowRuntime }: Props) {
   const { stats } = atlas
   const cells: [string, string][] = [
     [n(stats.nodes), 'nodes'],
@@ -62,6 +63,7 @@ export function Header({ atlas, layoutMode, flowing, onLayout, onToggleFlow, onT
         </button>
         <button type="button" className="cv-btn" onClick={onTrace}>Trace one step</button>
         <button type="button" className="cv-btn" onClick={onReset}>Reset view</button>
+        {onShowRuntime === undefined ? null : <button type="button" className="cv-btn" onClick={onShowRuntime}>Runtime Lens</button>}
       </div>
     </header>
   )

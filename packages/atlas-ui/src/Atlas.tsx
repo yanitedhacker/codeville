@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
-import type { Atlas as AtlasData, AtlasLink, AtlasNode, LayoutMode } from '@codeville/core'
+import type { Atlas as AtlasData, AtlasLink, AtlasNode, LayoutMode, RuntimeTraceBundle } from '@codeville/core'
 import { canvasCommand, startsFlowing } from './keyboard.js'
 import { AtlasRenderer, subLabel } from './renderer.js'
 import { Header } from './panels/Header.js'
@@ -8,9 +8,10 @@ import { SystemMap } from './panels/SystemMap.js'
 import { Inspect, type InspectTarget, type Tab } from './panels/Inspect.js'
 import { buildTour, type TourChapter } from './tour.js'
 import type { AtlasFocus } from './focus.js'
+import { RuntimeLens } from './runtime/RuntimeLens.js'
 import './theme.css'
 
-export interface AtlasProps {
+export interface AtlasBaseProps {
   atlas: AtlasData
   /** Rendered into the footer's left slot; defaults to the reference caption. */
   caption?: string
@@ -18,13 +19,20 @@ export interface AtlasProps {
   footerExtra?: React.ReactNode
 }
 
+export type AtlasProps = AtlasBaseProps & (
+  | { runtime?: undefined; initialMode?: 'static'; onClearRuntime?: undefined }
+  | { runtime: RuntimeTraceBundle; initialMode?: 'static' | 'runtime'; onClearRuntime: () => void }
+)
+
 interface Tip {
   node: AtlasNode
   x: number
   y: number
 }
 
-export function Atlas({ atlas, caption = 'Local source atlas / read-only projection', footerExtra }: AtlasProps) {
+export function Atlas(props: AtlasProps) {
+  const { atlas, caption = 'Local source atlas / read-only projection', footerExtra } = props
+  const runtime = props.runtime
   const stageRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const rendererRef = useRef<AtlasRenderer | null>(null)
@@ -47,6 +55,8 @@ export function Atlas({ atlas, caption = 'Local source atlas / read-only project
   const [tourIndex, setTourIndex] = useState<number | null>(null)
   const [manualFocus, setManualFocus] = useState<AtlasFocus | null>(null)
   const [focusMessage, setFocusMessage] = useState<string | null>(null)
+  const [mode, setMode] = useState<'static' | 'runtime'>(() => runtime && props.initialMode === 'runtime' ? 'runtime' : 'static')
+  const [pendingSourceNodeId, setPendingSourceNodeId] = useState<string | null>(null)
 
   const byId = useMemo(() => new Map(atlas.nodes.map((n) => [n.id, n])), [atlas])
   const chapters = useMemo<TourChapter[]>(() => buildTour(atlas), [atlas])
@@ -56,6 +66,10 @@ export function Atlas({ atlas, caption = 'Local source atlas / read-only project
   const activeFocus = boundedTourIndex == null ? manualFocus : chapters[boundedTourIndex] ?? null
   const layoutModeRef = useRef(layoutMode)
   layoutModeRef.current = layoutMode
+
+  useEffect(() => {
+    if (!runtime && mode === 'runtime') setMode('static')
+  }, [runtime, mode])
 
   useEffect(() => {
     if (tourIndex != null) {
@@ -70,6 +84,7 @@ export function Atlas({ atlas, caption = 'Local source atlas / read-only project
   }, [atlas, chapters, tourIndex, manualFocus])
 
   useEffect(() => {
+    if (mode !== 'static') return
     const canvas = canvasRef.current
     const stage = stageRef.current
     if (!canvas || !stage) return
@@ -108,7 +123,7 @@ export function Atlas({ atlas, caption = 'Local source atlas / read-only project
       renderer.dispose()
       rendererRef.current = null
     }
-  }, [atlas, byId])
+  }, [atlas, byId, mode])
 
   useEffect(() => {
     const focus = activeFocus
@@ -123,12 +138,20 @@ export function Atlas({ atlas, caption = 'Local source atlas / read-only project
       flowing,
       focus,
     })
-  }, [selected, selectedLink, hovered, activeArea, filter, flowing, activeFocus, atlas])
+  }, [selected, selectedLink, hovered, activeArea, filter, flowing, activeFocus, atlas, mode])
 
   useEffect(() => {
     const renderer = rendererRef.current
     if (renderer && activeFocus) renderer.focusNodes([...activeFocus.nodeIds].sort())
-  }, [activeFocus, layoutMode, atlas])
+  }, [activeFocus, layoutMode, atlas, mode])
+
+  useEffect(() => {
+    if (mode !== 'static' || pendingSourceNodeId === null) return
+    const renderer = rendererRef.current
+    if (renderer === null) return
+    renderer.focusNode(pendingSourceNodeId)
+    setPendingSourceNodeId(null)
+  }, [mode, pendingSourceNodeId, atlas])
 
   // Selecting from a list should also bring the block into view. Replaces the set.
   const selectFromList = useCallback((id: string) => {
@@ -207,6 +230,17 @@ export function Atlas({ atlas, caption = 'Local source atlas / read-only project
     rendererRef.current?.resetView()
   }, [])
 
+  const showRuntime = useCallback(() => setMode('runtime'), [])
+  const showStatic = useCallback(() => setMode('static'), [])
+  const openRuntimeSource = useCallback((nodeId: string) => {
+    setHovered(null)
+    setTip(null)
+    setSelectedLink(null)
+    setSelected([nodeId])
+    setPendingSourceNodeId(nodeId)
+    setMode('static')
+  }, [])
+
   const target = useMemo((): InspectTarget => {
     if (hovered) {
       const node = byId.get(hovered)
@@ -218,6 +252,21 @@ export function Atlas({ atlas, caption = 'Local source atlas / read-only project
     if (nodes.length === 1) return { type: 'node', node: nodes[0]! }
     return { type: 'empty' }
   }, [hovered, selected, selectedLink, byId])
+
+  if (mode === 'runtime' && props.runtime) {
+    return (
+      <div className="cv-runtime-root">
+        <RuntimeLens
+          atlas={atlas}
+          runtime={props.runtime}
+          onShowStatic={showStatic}
+          onOpenSource={openRuntimeSource}
+          onClearRuntime={props.onClearRuntime}
+          footerActions={footerExtra}
+        />
+      </div>
+    )
+  }
 
   return (
     <div className="cv-root">
@@ -232,6 +281,7 @@ export function Atlas({ atlas, caption = 'Local source atlas / read-only project
           rendererRef.current?.traceOneStep()
         }}
         onReset={resetAll}
+        onShowRuntime={runtime ? showRuntime : undefined}
       />
 
       <SystemMap
