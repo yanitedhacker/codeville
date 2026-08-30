@@ -6,7 +6,7 @@ import {
 
 type JsonRecord = Record<string, unknown>
 
-interface ParsedOtlpDocument {
+export interface ParsedOtlpDocument {
   readonly resourceSpans: unknown[]
   readonly raw: JsonRecord
 }

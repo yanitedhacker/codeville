@@ -41,6 +41,95 @@ export type RuntimeValue =
   | { type: 'kvlist'; value: RuntimeAttribute[] }
   | { type: 'redacted' }
 
+export interface RuntimeResource {
+  schemaUrl?: string
+  attributes: RuntimeAttribute[]
+  droppedAttributesCount: string
+}
+
+export interface RuntimeScope {
+  schemaUrl?: string
+  name?: string
+  version?: string
+  attributes: RuntimeAttribute[]
+  droppedAttributesCount: string
+}
+
+export interface RuntimeSpanEvent {
+  timeUnixNano: string
+  name: string
+  attributes: RuntimeAttribute[]
+  droppedAttributesCount: string
+}
+
+export interface RuntimeSpanLink {
+  traceId: string
+  spanId: string
+  traceState?: string
+  flags: number
+  attributes: RuntimeAttribute[]
+  droppedAttributesCount: string
+}
+
+export interface RuntimeSpanStatus {
+  message?: string
+  code: number
+}
+
+export interface RuntimeSpan {
+  traceId: string
+  spanId: string
+  parentSpanId?: string
+  traceState?: string
+  flags: number
+  sampled: boolean
+  name: string
+  kind: number
+  startTimeUnixNano: string
+  endTimeUnixNano: string
+  durationNano: string
+  attributes: RuntimeAttribute[]
+  droppedAttributesCount: string
+  events: RuntimeSpanEvent[]
+  droppedEventsCount: string
+  links: RuntimeSpanLink[]
+  droppedLinksCount: string
+  status: RuntimeSpanStatus
+  resource: RuntimeResource
+  scope: RuntimeScope
+}
+
+export interface RuntimeUnknownFieldDiagnostic {
+  path: string
+  count: number
+}
+
+export interface RuntimeImportReport {
+  documents: number
+  resourceScopeGroups: number
+  traces: number
+  inputSpans: number
+  spans: number
+  duplicateSpans: number
+  sampledSpans: number
+  unsampledSpans: number
+  redactedAttributes: number
+  droppedAttributesCount: string
+  droppedEventsCount: string
+  droppedLinksCount: string
+  unknownFieldCount: number
+  unknownFields: RuntimeUnknownFieldDiagnostic[]
+}
+
+export interface NormalizedRuntimeInput {
+  spans: RuntimeSpan[]
+  report: RuntimeImportReport
+}
+
+export interface RuntimeNormalizeOptions {
+  readonly limits?: Partial<RuntimeImportLimits>
+}
+
 export class RuntimeImportError extends Error {
   constructor(
     public readonly code: 'syntax' | 'schema' | 'limit' | 'identity' | 'time' | 'conflict',
