@@ -47,8 +47,14 @@ function text(value: ReactNode): string {
   return typeof value === 'object' && 'props' in value ? text((value as AnyElement).props.children) : ''
 }
 
-function render(tab: RuntimeInspectorTab, span: RuntimeTraceBundle['spans'][number] | null = matchedSpan, onOpenSource = vi.fn()) {
-  return RuntimeInspector({ span, trace: bundle.traces[0]!, bundle, tab, onTab: vi.fn(), onSelectSpan: vi.fn(), onOpenSource })
+function render(
+  tab: RuntimeInspectorTab,
+  span: RuntimeTraceBundle['spans'][number] | null = matchedSpan,
+  onOpenSource = vi.fn(),
+  onSelectSpan = vi.fn(),
+  runtime = bundle,
+) {
+  return RuntimeInspector({ span, trace: runtime.traces[0]!, bundle: runtime, tab, onTab: vi.fn(), onSelectSpan, onOpenSource })
 }
 
 describe('RuntimeInspector', () => {
@@ -75,24 +81,24 @@ describe('RuntimeInspector', () => {
   it('shows every recorded resource, scope, attribute, event, and link fact as React text', () => {
     const content = (['span', 'resource', 'scope', 'attributes', 'events', 'links'] as const).map((tab) => text(render(tab))).join('\n')
     expect(content).toContain('Resource schema URL: https://schema.example/resource')
-    expect(content).toContain('service.name: api')
+    expect(content).toContain('key "service.name": string("api")')
     expect(content).toContain('Dropped resource attributes: 7')
     expect(content).toContain('Scope schema URL: https://schema.example/scope')
     expect(content).toContain('Scope name: instrumentation')
     expect(content).toContain('Scope version: 1.2.3')
-    expect(content).toContain('scope.key: true')
+    expect(content).toContain('key "scope.key": bool(true)')
     expect(content).toContain('Dropped scope attributes: 8')
-    expect(content).toContain('db.system: <postgres>')
-    expect(content).toContain('retry: 2')
+    expect(content).toContain('key "db.system": string("<postgres>")')
+    expect(content).toContain('key "retry": int(2)')
     expect(content).toContain('Event 1: <timeout>')
     expect(content).toContain('Event time: 150 ns')
-    expect(content).toContain('attempt: 2')
+    expect(content).toContain('key "attempt": int(2)')
     expect(content).toContain('Dropped event attributes: 1')
     expect(content).toContain('Linked trace ID: 22222222222222222222222222222222')
     expect(content).toContain('Linked span ID: cccccccccccccccc')
     expect(content).toContain('Link trace state: link=value')
     expect(content).toContain('Link flags: 1')
-    expect(content).toContain('link.kind: follows')
+    expect(content).toContain('key "link.kind": string("follows")')
     expect(content).toContain('Dropped link attributes: 2')
     expect(content).toContain('<script>database</script>')
   })
@@ -103,6 +109,52 @@ describe('RuntimeInspector', () => {
       expect(content).toContain(`Trace ID: ${TRACE_ID}`)
       expect(content).toContain('Span ID: aaaaaaaaaaaaaaaa')
     }
+  })
+
+  it('renders every runtime value type with unambiguous recursive structure', () => {
+    const typed = {
+      ...matchedSpan,
+      attributes: [
+        { key: 'truth', value: { type: 'string' as const, value: 'true' } },
+        { key: 'boolean', value: { type: 'bool' as const, value: true } },
+        { key: 'integer', value: { type: 'int' as const, value: '7' } },
+        { key: 'decimal', value: { type: 'double' as const, value: 7.5 } },
+        { key: 'raw', value: { type: 'bytes' as const, value: 'dHJ1ZQ==' } },
+        { key: 'secret', value: { type: 'redacted' as const } },
+        { key: 'list', value: { type: 'array' as const, value: [
+          { type: 'string' as const, value: 'a, b' }, { type: 'bool' as const, value: true },
+        ] } },
+        { key: 'map', value: { type: 'kvlist' as const, value: [
+          { key: 'a, b: {', value: { type: 'string' as const, value: 'x: y, z' } },
+          { key: 'nested', value: { type: 'array' as const, value: [{ type: 'int' as const, value: '1' }, { type: 'bool' as const, value: false }] } },
+        ] } },
+      ],
+    }
+    const content = text(render('attributes', typed))
+
+    expect(content).toContain('key "truth": string("true")')
+    expect(content).toContain('key "boolean": bool(true)')
+    expect(content).toContain('key "integer": int(7)')
+    expect(content).toContain('key "decimal": double(7.5)')
+    expect(content).toContain('key "raw": bytes("dHJ1ZQ==")')
+    expect(content).toContain('key "secret": redacted')
+    expect(content).toContain('key "list": array([string("a, b"), bool(true)])')
+    expect(content).toContain('key "map": kvlist([{key:"a, b: {", value:string("x: y, z")}, {key:"nested", value:array([int(1), bool(false)])}])')
+  })
+
+  it('selects an exact cross-trace link by trace and span identity', () => {
+    const onSelectSpan = vi.fn()
+    const linkedSpan = { ...matchedSpan, traceId: '22222222222222222222222222222222', spanId: 'cccccccccccccccc', links: [], source: undefined }
+    const linkedBundle: RuntimeTraceBundle = {
+      ...bundle,
+      traces: [...bundle.traces, { traceId: linkedSpan.traceId, startTimeUnixNano: '100', endTimeUnixNano: '220', spanIds: [linkedSpan.spanId], rootSpanIds: [linkedSpan.spanId], orphanSpanIds: [], cycleBreakSpanIds: [], hotPathSpanIds: [linkedSpan.spanId], errorPaths: [] }],
+      spans: [...bundle.spans, linkedSpan],
+    }
+    const elements = walk(render('links', matchedSpan, vi.fn(), onSelectSpan, linkedBundle))
+    const select = elements.find((element) => element.type === 'button' && element.props.children === 'Select linked span')
+    expect(select?.props.disabled).not.toBe(true)
+    select?.props.onClick()
+    expect(onSelectSpan).toHaveBeenCalledWith({ traceId: linkedSpan.traceId, spanId: linkedSpan.spanId })
   })
 
   it('opens only the exact matched source node ID', () => {

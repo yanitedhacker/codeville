@@ -9,13 +9,19 @@ import type {
 
 export type RuntimeInspectorTab = 'span' | 'resource' | 'scope' | 'attributes' | 'events' | 'links'
 
+export interface RuntimeSpanSelection {
+  traceId: string
+  spanId: string
+}
+
 export interface RuntimeInspectorProps {
   span: DerivedRuntimeSpan | null
   trace: RuntimeTrace | null
   bundle: RuntimeTraceBundle
   tab: RuntimeInspectorTab
   onTab(tab: RuntimeInspectorTab): void
-  onSelectSpan(spanId: string): void
+  onSelectSpan(selection: RuntimeSpanSelection): void
+  canSelectSpan?(selection: RuntimeSpanSelection): boolean
   onOpenSource(nodeId: string): void
 }
 
@@ -36,14 +42,14 @@ function statusLabel(code: number): string {
 
 function valueText(value: RuntimeValue): string {
   switch (value.type) {
-    case 'string': return value.value
-    case 'bool': return String(value.value)
-    case 'int': return value.value
-    case 'double': return String(value.value)
-    case 'bytes': return value.value
-    case 'redacted': return '[redacted]'
-    case 'array': return `[${value.value.map(valueText).join(', ')}]`
-    case 'kvlist': return `{${value.value.map((attribute) => `${attribute.key}: ${valueText(attribute.value)}`).join(', ')}}`
+    case 'string': return `string(${JSON.stringify(value.value)})`
+    case 'bool': return `bool(${String(value.value)})`
+    case 'int': return `int(${value.value})`
+    case 'double': return `double(${String(value.value)})`
+    case 'bytes': return `bytes(${JSON.stringify(value.value)})`
+    case 'redacted': return 'redacted'
+    case 'array': return `array([${value.value.map(valueText).join(', ')}])`
+    case 'kvlist': return `kvlist([${value.value.map((attribute) => `{key:${JSON.stringify(attribute.key)}, value:${valueText(attribute.value)}}`).join(', ')}])`
   }
 }
 
@@ -57,7 +63,7 @@ function attributesList(attributes: readonly RuntimeAttribute[], emptyText: stri
     <dl>
       {attributes.map((attribute, index) => (
         <div key={`${attribute.key}:${index}`}>
-          <dt>{`${attribute.key}: `}</dt>
+          <dt>{`key ${JSON.stringify(attribute.key)}: `}</dt>
           <dd>{valueText(attribute.value)}</dd>
         </div>
       ))}
@@ -143,12 +149,19 @@ function eventsPanel(span: DerivedRuntimeSpan) {
   )
 }
 
-function linksPanel(span: DerivedRuntimeSpan, bundle: RuntimeTraceBundle, onSelectSpan: (spanId: string) => void) {
+function linksPanel(
+  span: DerivedRuntimeSpan,
+  bundle: RuntimeTraceBundle,
+  onSelectSpan: (selection: RuntimeSpanSelection) => void,
+  canSelectSpan?: (selection: RuntimeSpanSelection) => boolean,
+) {
   if (span.links.length === 0) return <p>No recorded span links.</p>
   return (
     <ol>
       {span.links.map((link, index) => {
-        const localTarget = bundle.spans.some((candidate) => candidate.traceId === link.traceId && candidate.spanId === link.spanId)
+        const selection = { traceId: link.traceId, spanId: link.spanId }
+        const localTarget = bundle.spans.some((candidate) => candidate.traceId === selection.traceId && candidate.spanId === selection.spanId)
+        const selectable = localTarget && (canSelectSpan?.(selection) ?? true)
         return (
           <li key={`${link.traceId}:${link.spanId}:${index}`}>
             <h4>{`Link ${index + 1}`}</h4>
@@ -158,7 +171,10 @@ function linksPanel(span: DerivedRuntimeSpan, bundle: RuntimeTraceBundle, onSele
             {fact('Link flags', link.flags)}
             {fact('Dropped link attributes', link.droppedAttributesCount)}
             {attributesList(link.attributes, 'No recorded link attributes.')}
-            {localTarget ? <button type="button" onClick={() => onSelectSpan(link.spanId)}>Select linked span</button> : null}
+            {localTarget
+              ? <button type="button" disabled={!selectable} onClick={() => { if (selectable) onSelectSpan(selection) }}>Select linked span</button>
+              : null}
+            {localTarget && !selectable ? <p>The linked span is hidden by the current filters.</p> : null}
           </li>
         )
       })}
@@ -167,7 +183,7 @@ function linksPanel(span: DerivedRuntimeSpan, bundle: RuntimeTraceBundle, onSele
 }
 
 function activePanel(props: RuntimeInspectorProps): ReactNode {
-  const { span, trace, bundle, tab, onSelectSpan, onOpenSource } = props
+  const { span, trace, bundle, tab, onSelectSpan, canSelectSpan, onOpenSource } = props
   if (span === null) return <p>Select a recorded span to inspect its exact evidence.</p>
   switch (tab) {
     case 'span': return spanPanel(span, trace, onOpenSource)
@@ -175,7 +191,7 @@ function activePanel(props: RuntimeInspectorProps): ReactNode {
     case 'scope': return scopePanel(span)
     case 'attributes': return attributesList(span.attributes, 'No recorded span attributes.')
     case 'events': return eventsPanel(span)
-    case 'links': return linksPanel(span, bundle, onSelectSpan)
+    case 'links': return linksPanel(span, bundle, onSelectSpan, canSelectSpan)
   }
 }
 

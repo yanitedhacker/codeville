@@ -1,13 +1,14 @@
-import { useEffect, useRef, type PointerEvent, type WheelEvent } from 'react'
+import { useEffect, useRef } from 'react'
 import type { RuntimeTrace } from '@codeville/core'
 import { TimelineRenderer } from './TimelineRenderer.js'
+import type { RuntimeSpanSelection } from './RuntimeInspector.js'
 import type { RuntimeDisplaySpan, RuntimeViewModel } from './view-model.js'
 
 export interface TimelineProps {
   view: RuntimeViewModel
   trace: RuntimeTrace
-  selectedSpanId: string | null
-  onSelectSpan(spanId: string): void
+  selection: RuntimeSpanSelection | null
+  onSelectSpan(selection: RuntimeSpanSelection): void
 }
 
 function formattedNano(value: string): string {
@@ -56,17 +57,22 @@ export function timelineRowText(span: RuntimeDisplaySpan, trace: RuntimeTrace): 
   ].join(' / ')
 }
 
-function canvasPoint(event: { nativeEvent?: { offsetX?: number; offsetY?: number }; currentTarget?: HTMLCanvasElement }): { x: number; y: number } {
-  const offsetX = event.nativeEvent?.offsetX
-  const offsetY = event.nativeEvent?.offsetY
+function canvasPoint(event: { offsetX?: number; offsetY?: number }): { x: number; y: number } {
+  const offsetX = event.offsetX
+  const offsetY = event.offsetY
   if (typeof offsetX === 'number' && typeof offsetY === 'number') return { x: offsetX, y: offsetY }
   return { x: 0, y: 0 }
 }
 
-export function Timeline({ view, trace, selectedSpanId, onSelectSpan }: TimelineProps) {
+export function Timeline({ view, trace, selection, onSelectSpan }: TimelineProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const rendererRef = useRef<TimelineRenderer | null>(null)
-  const dragRef = useRef<{ x: number; y: number } | null>(null)
+  const dragRef = useRef<{ pointerId: number; startX: number; startY: number; lastX: number; dragged: boolean } | null>(null)
+  const suppressClickRef = useRef(false)
+  const onSelectSpanRef = useRef(onSelectSpan)
+  const traceIdRef = useRef(trace.traceId)
+  onSelectSpanRef.current = onSelectSpan
+  traceIdRef.current = trace.traceId
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -74,10 +80,75 @@ export function Timeline({ view, trace, selectedSpanId, onSelectSpan }: Timeline
     const renderer = new TimelineRenderer(canvas)
     rendererRef.current = renderer
     const resize = () => renderer.resize(canvas.clientWidth, canvas.clientHeight)
+    const spanAtEvent = (event: MouseEvent | PointerEvent) => {
+      const point = canvasPoint(event)
+      return renderer.spanAt(point.x, point.y)
+    }
+    const releaseCapture = (pointerId: number) => {
+      if (canvas.hasPointerCapture(pointerId)) canvas.releasePointerCapture(pointerId)
+    }
+    const pointerDown = (event: PointerEvent) => {
+      dragRef.current = { pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, lastX: event.clientX, dragged: false }
+      suppressClickRef.current = false
+      canvas.setPointerCapture(event.pointerId)
+    }
+    const pointerMove = (event: PointerEvent) => {
+      const drag = dragRef.current
+      if (drag !== null && drag.pointerId === event.pointerId) {
+        renderer.panBy(event.clientX - drag.lastX)
+        drag.lastX = event.clientX
+        if (Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) >= 4) drag.dragged = true
+      }
+      spanAtEvent(event)
+    }
+    const pointerUp = (event: PointerEvent) => {
+      const drag = dragRef.current
+      if (drag !== null && drag.pointerId === event.pointerId) suppressClickRef.current = drag.dragged
+      dragRef.current = null
+      releaseCapture(event.pointerId)
+    }
+    const pointerCancel = (event: PointerEvent) => {
+      suppressClickRef.current = true
+      dragRef.current = null
+      releaseCapture(event.pointerId)
+    }
+    const lostPointerCapture = (event: PointerEvent) => {
+      const drag = dragRef.current
+      if (drag?.pointerId === event.pointerId) {
+        suppressClickRef.current = drag.dragged
+        dragRef.current = null
+      }
+    }
+    const click = (event: MouseEvent) => {
+      if (suppressClickRef.current) {
+        suppressClickRef.current = false
+        return
+      }
+      const spanId = spanAtEvent(event)
+      if (spanId !== null) onSelectSpanRef.current({ traceId: traceIdRef.current, spanId })
+    }
+    const wheel = (event: WheelEvent) => {
+      event.preventDefault()
+      renderer.zoomBy(event.deltaY < 0 ? 1.25 : 0.8)
+    }
     resize()
     const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(resize)
     observer?.observe(canvas)
+    canvas.addEventListener('pointerdown', pointerDown)
+    canvas.addEventListener('pointermove', pointerMove)
+    canvas.addEventListener('pointerup', pointerUp)
+    canvas.addEventListener('pointercancel', pointerCancel)
+    canvas.addEventListener('lostpointercapture', lostPointerCapture)
+    canvas.addEventListener('click', click)
+    canvas.addEventListener('wheel', wheel, { passive: false })
     return () => {
+      canvas.removeEventListener('pointerdown', pointerDown)
+      canvas.removeEventListener('pointermove', pointerMove)
+      canvas.removeEventListener('pointerup', pointerUp)
+      canvas.removeEventListener('pointercancel', pointerCancel)
+      canvas.removeEventListener('lostpointercapture', lostPointerCapture)
+      canvas.removeEventListener('click', click)
+      canvas.removeEventListener('wheel', wheel)
       observer?.disconnect()
       renderer.dispose()
       rendererRef.current = null
@@ -85,37 +156,9 @@ export function Timeline({ view, trace, selectedSpanId, onSelectSpan }: Timeline
   }, [])
 
   useEffect(() => {
+    const selectedSpanId = selection?.traceId === trace.traceId ? selection.spanId : null
     rendererRef.current?.setView(view, selectedSpanId)
-  }, [view, selectedSpanId])
-
-  const pointSpan = (event: PointerEvent<HTMLCanvasElement>) => {
-    const point = canvasPoint(event)
-    return rendererRef.current?.spanAt(point.x, point.y) ?? null
-  }
-
-  const pointerDown = (event: PointerEvent<HTMLCanvasElement>) => {
-    dragRef.current = { x: event.clientX, y: event.clientY }
-    event.currentTarget.setPointerCapture(event.pointerId)
-  }
-
-  const pointerMove = (event: PointerEvent<HTMLCanvasElement>) => {
-    const previous = dragRef.current
-    if (previous !== null) {
-      rendererRef.current?.panBy(event.clientX - previous.x)
-      dragRef.current = { x: event.clientX, y: event.clientY }
-    }
-    pointSpan(event)
-  }
-
-  const pointerUp = () => { dragRef.current = null }
-  const click = (event: PointerEvent<HTMLCanvasElement>) => {
-    const spanId = pointSpan(event)
-    if (spanId !== null) onSelectSpan(spanId)
-  }
-  const wheel = (event: WheelEvent<HTMLCanvasElement>) => {
-    event.preventDefault()
-    rendererRef.current?.zoomBy(event.deltaY < 0 ? 1.25 : 0.8)
-  }
+  }, [view, trace.traceId, selection])
 
   return (
     <section className="cv-runtime-timeline" aria-label="Recorded span timeline">
@@ -131,13 +174,6 @@ export function Timeline({ view, trace, selectedSpanId, onSelectSpan }: Timeline
         tabIndex={0}
         aria-label={`Observed span timeline for trace ${trace.traceId}`}
         aria-describedby="cv-runtime-timeline-help"
-        onPointerDown={pointerDown}
-        onPointerMove={pointerMove}
-        onPointerUp={pointerUp}
-        onPointerCancel={pointerUp}
-        onPointerLeave={pointerUp}
-        onClick={click}
-        onWheel={wheel}
       />
       {view.visibleSpans.length === 0 ? <p>No recorded spans match the current filters.</p> : null}
       <ol className="cv-runtime-text-timeline" aria-label="Text timeline">
@@ -145,9 +181,8 @@ export function Timeline({ view, trace, selectedSpanId, onSelectSpan }: Timeline
           <li key={span.spanId}>
             <button
               type="button"
-              aria-label={`Select recorded span ${span.spanId}`}
-              aria-current={selectedSpanId === span.spanId ? 'true' : undefined}
-              onClick={() => onSelectSpan(span.spanId)}
+              aria-current={selection?.traceId === trace.traceId && selection.spanId === span.spanId ? 'true' : undefined}
+              onClick={() => onSelectSpan({ traceId: trace.traceId, spanId: span.spanId })}
             >
               {timelineRowText(span, trace)}
             </button>

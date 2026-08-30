@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import type { Atlas, RuntimeTraceBundle } from '@codeville/core'
-import { RuntimeInspector, type RuntimeInspectorTab } from './RuntimeInspector.js'
+import { RuntimeInspector, type RuntimeInspectorTab, type RuntimeSpanSelection } from './RuntimeInspector.js'
 import { Timeline } from './Timeline.js'
 import { TraceRail } from './TraceRail.js'
 import { buildRuntimeView, type RuntimeFilters, type RuntimeViewModel } from './view-model.js'
@@ -77,7 +77,7 @@ function warningItems(runtime: RuntimeTraceBundle, view: RuntimeViewModel): Reac
 
 export function RuntimeLens({ atlas, runtime, onShowStatic, onOpenSource, onClearRuntime, footerActions }: RuntimeLensProps) {
   const [traceId, setTraceId] = useState(() => runtime.traces[0]?.traceId ?? '')
-  const [selectedSpanId, setSelectedSpanId] = useState<string | null>(null)
+  const [selection, setSelection] = useState<RuntimeSpanSelection | null>(null)
   const [filters, setFilters] = useState<RuntimeFilters>(INITIAL_FILTERS)
   const [tab, setTab] = useState<RuntimeInspectorTab>('span')
   const [statusText, setStatusText] = useState('Runtime data loaded. No recorded span is selected.')
@@ -89,8 +89,12 @@ export function RuntimeLens({ atlas, runtime, onShowStatic, onOpenSource, onClea
     () => buildRuntimeView(runtime, effectiveTraceId, filters),
     [runtime, effectiveTraceId, filters],
   )
-  const effectiveSelectedSpanId = selectedSpanId !== null && view.visibleSpanIds.includes(selectedSpanId) ? selectedSpanId : null
-  const selectedSpan = effectiveSelectedSpanId === null ? null : view.spansById.get(effectiveSelectedSpanId)?.span ?? null
+  const effectiveSelection = selection !== null
+    && selection.traceId === effectiveTraceId
+    && view.visibleSpanIds.includes(selection.spanId)
+    ? selection
+    : null
+  const selectedSpan = effectiveSelection === null ? null : view.spansById.get(effectiveSelection.spanId)?.span ?? null
   const services = useMemo(
     () => [...new Set(view.selectedSpans.map((span) => span.serviceName))].sort((left, right) => left.localeCompare(right)),
     [view],
@@ -117,21 +121,33 @@ export function RuntimeLens({ atlas, runtime, onShowStatic, onOpenSource, onClea
   }, [traceId, effectiveTraceId])
 
   useEffect(() => {
-    if (selectedSpanId !== null && effectiveSelectedSpanId === null) {
-      setSelectedSpanId(null)
+    if (selection !== null && effectiveSelection === null) {
+      setSelection(null)
       setStatusText('The selected span is not visible under the current filters. No recorded span is selected.')
     }
-  }, [selectedSpanId, effectiveSelectedSpanId])
+  }, [selection, effectiveSelection])
 
   useEffect(() => {
     setStatusText(`Runtime completeness changed: ${runtime.report.redactedAttributes} redacted attributes. ${warnings.length} non-zero completeness notices are visible.`)
   }, [completenessKey])
 
-  const selectSpan = (spanId: string) => {
-    const display = view.spansById.get(spanId)
-    if (display === undefined || !view.visibleSpanIds.includes(spanId)) return
-    setSelectedSpanId(spanId)
-    setStatusText(`Selected span ${spanId}: ${display.span.name}.`)
+  const selectableView = (candidate: RuntimeSpanSelection) => {
+    if (!runtime.traces.some((trace) => trace.traceId === candidate.traceId)) return null
+    const candidateView = candidate.traceId === effectiveTraceId
+      ? view
+      : buildRuntimeView(runtime, candidate.traceId, filters)
+    return candidateView.visibleSpanIds.includes(candidate.spanId) ? candidateView : null
+  }
+
+  const canSelectSpan = (candidate: RuntimeSpanSelection) => selectableView(candidate) !== null
+
+  const selectSpan = (candidate: RuntimeSpanSelection) => {
+    const candidateView = selectableView(candidate)
+    const display = candidateView?.spansById.get(candidate.spanId)
+    if (candidateView === null || display === undefined) return
+    setTraceId(candidate.traceId)
+    setSelection(candidate)
+    setStatusText(`Selected span ${candidate.spanId}: ${display.span.name}. Trace ${candidate.traceId}.`)
   }
 
   const moveTrace = (delta: number) => {
@@ -140,7 +156,7 @@ export function RuntimeLens({ atlas, runtime, onShowStatic, onOpenSource, onClea
     const next = runtime.traces[nextIndex]
     if (next === undefined || nextIndex === effectiveTraceIndex) return
     setTraceId(next.traceId)
-    setSelectedSpanId(null)
+    setSelection(null)
     setStatusText(`Selected trace ${next.traceId}. No recorded span is selected.`)
   }
 
@@ -180,8 +196,6 @@ export function RuntimeLens({ atlas, runtime, onShowStatic, onOpenSource, onClea
                   <span>{`Trace ${effectiveTraceIndex + 1} of ${runtime.traces.length}`}</span>
                   <button type="button" disabled={effectiveTraceIndex < 0 || effectiveTraceIndex >= runtime.traces.length - 1} onClick={() => moveTrace(1)}>Next trace</button>
                 </div>
-                <h4>Completeness notices</h4>
-                {warnings.length > 0 ? <ul>{warnings}</ul> : <p>No non-zero completeness notices were recorded.</p>}
               </section>
 
               <form className="cv-runtime-filters" onSubmit={(event) => event.preventDefault()}>
@@ -230,8 +244,8 @@ export function RuntimeLens({ atlas, runtime, onShowStatic, onOpenSource, onClea
               </form>
 
               <div className="cv-runtime-regions">
-                <TraceRail view={view} selectedSpanId={effectiveSelectedSpanId} onSelectSpan={selectSpan} />
-                <Timeline view={view} trace={view.selectedTrace} selectedSpanId={effectiveSelectedSpanId} onSelectSpan={selectSpan} />
+                <TraceRail view={view} selection={effectiveSelection} onSelectSpan={selectSpan} />
+                <Timeline view={view} trace={view.selectedTrace} selection={effectiveSelection} onSelectSpan={selectSpan} />
                 <RuntimeInspector
                   span={selectedSpan}
                   trace={view.selectedTrace}
@@ -239,11 +253,17 @@ export function RuntimeLens({ atlas, runtime, onShowStatic, onOpenSource, onClea
                   tab={tab}
                   onTab={setTab}
                   onSelectSpan={selectSpan}
+                  canSelectSpan={canSelectSpan}
                   onOpenSource={onOpenSource}
                 />
               </div>
             </>
           )}
+
+      <section className="cv-runtime-completeness" aria-label="Runtime import completeness notices">
+        <h3>Completeness notices</h3>
+        {warnings.length > 0 ? <ul>{warnings}</ul> : <p>No non-zero completeness notices were recorded.</p>}
+      </section>
 
       <p role="status" aria-live="polite">{statusText}</p>
       {footerActions === undefined ? null : <footer className="cv-runtime-footer-actions">{footerActions}</footer>}

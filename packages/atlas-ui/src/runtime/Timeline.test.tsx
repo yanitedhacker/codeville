@@ -6,7 +6,23 @@ import { buildRuntimeView } from './view-model.js'
 type AnyElement = ReactElement<Record<string, any>>
 
 const harness = vi.hoisted(() => {
-  const fakeCanvas = { clientWidth: 800, clientHeight: 240, width: 0, height: 0, style: {}, getContext: () => ({}) }
+  const listeners = new Map<string, Set<EventListener>>()
+  const heldPointers = new Set<number>()
+  const fakeCanvas = {
+    clientWidth: 800, clientHeight: 240, width: 0, height: 0, style: {}, getContext: () => ({}),
+    addEventListener: vi.fn((type: string, listener: EventListener, _options?: AddEventListenerOptions | boolean) => {
+      const entries = listeners.get(type) ?? new Set<EventListener>()
+      entries.add(listener)
+      listeners.set(type, entries)
+    }),
+    removeEventListener: vi.fn((type: string, listener: EventListener) => listeners.get(type)?.delete(listener)),
+    dispatch(type: string, event: Record<string, any>) {
+      for (const listener of listeners.get(type) ?? []) listener({ ...event, currentTarget: fakeCanvas } as unknown as Event)
+    },
+    setPointerCapture: vi.fn((pointerId: number) => heldPointers.add(pointerId)),
+    hasPointerCapture: vi.fn((pointerId: number) => heldPointers.has(pointerId)),
+    releasePointerCapture: vi.fn((pointerId: number) => heldPointers.delete(pointerId)),
+  }
   const cleanups: Array<() => void> = []
   let refOrdinal = 0
   const state = {
@@ -16,7 +32,13 @@ const harness = vi.hoisted(() => {
   }
   return {
     state,
-    reset() { refOrdinal = 0; cleanups.length = 0; state.instances.length = 0; state.resizeObservers.length = 0 },
+    reset() {
+      refOrdinal = 0; cleanups.length = 0; state.instances.length = 0; state.resizeObservers.length = 0
+      listeners.clear(); heldPointers.clear()
+      fakeCanvas.clientWidth = 800; fakeCanvas.clientHeight = 240
+      fakeCanvas.addEventListener.mockClear(); fakeCanvas.removeEventListener.mockClear()
+      fakeCanvas.setPointerCapture.mockClear(); fakeCanvas.hasPointerCapture.mockClear(); fakeCanvas.releasePointerCapture.mockClear()
+    },
     begin() { refOrdinal = 0 },
     cleanup() { for (const cleanup of cleanups.splice(0)) cleanup() },
     useRef<T>(initial: T) {
@@ -101,10 +123,10 @@ function text(value: ReactNode): string {
   return typeof value === 'object' && 'props' in value ? text((value as AnyElement).props.children) : ''
 }
 
-function render(selectedSpanId: string | null, onSelectSpan = vi.fn()) {
+function render(selection: { traceId: string; spanId: string } | null, onSelectSpan = vi.fn()) {
   harness.begin()
   const view = buildRuntimeView(bundle, TRACE_ID, { service: null, status: 'all', minDurationNano: '0', errorsOnly: false })
-  return { value: Timeline({ view, trace: bundle.traces[0]!, selectedSpanId, onSelectSpan }), view, onSelectSpan }
+  return { value: Timeline({ view, trace: bundle.traces[0]!, selection, onSelectSpan }), view, onSelectSpan }
 }
 
 describe('Timeline', () => {
@@ -121,9 +143,11 @@ describe('Timeline', () => {
     expect(content).toContain('api / GET /users / +0 ns / 2,000 ns / error / recorded root / exact source: src/api.ts')
     expect(content).toContain('db / SQL <users> / +500 ns / 500 ns / ok / recorded parent root / no recorded source')
     expect(content).toContain('api / queue / +2,000 ns / 1,000 ns / unset / recorded parent missing (orphan) / unmatched recorded source')
-    const rows = elements.filter((element) => element.type === 'button' && typeof element.props['aria-label'] === 'string' && element.props['aria-label'].startsWith('Select recorded span'))
+    const rows = elements.filter((element) => element.type === 'button' && typeof element.props.children === 'string' && element.props.children.includes(' / '))
     expect(rows).toHaveLength(3)
     expect(rows.every((row) => row.props.type === 'button')).toBe(true)
+    expect(rows[1]?.props['aria-label']).toBeUndefined()
+    expect(text(rows[1]?.props.children)).toBe('db / SQL <users> / +500 ns / 500 ns / ok / recorded parent root / no recorded source')
   })
 
   it('creates, resizes, updates, and disposes one renderer with explicit selection', () => {
@@ -132,6 +156,13 @@ describe('Timeline', () => {
     expect(renderer.resize).toHaveBeenCalledWith(800, 240)
     expect(renderer.setView).toHaveBeenCalledWith(view, null)
     expect(harness.state.resizeObservers[0]?.observe).toHaveBeenCalledWith(harness.state.fakeCanvas)
+    const wheelRegistration = harness.state.fakeCanvas.addEventListener.mock.calls.find((call) => call[0] === 'wheel')
+    expect(wheelRegistration?.[2]).toEqual({ passive: false })
+
+    const preventDefault = vi.fn()
+    harness.state.fakeCanvas.dispatch('wheel', { deltaY: -1, preventDefault })
+    expect(preventDefault).toHaveBeenCalledOnce()
+    expect(renderer.zoomBy).toHaveBeenCalledWith(1.25)
 
     harness.state.fakeCanvas.clientWidth = 640
     harness.state.fakeCanvas.clientHeight = 180
@@ -142,38 +173,62 @@ describe('Timeline', () => {
     harness.cleanup()
     expect(renderer.dispose).toHaveBeenCalledOnce()
     expect(harness.state.resizeObservers[0]?.disconnect).toHaveBeenCalledOnce()
+    expect(harness.state.fakeCanvas.removeEventListener).toHaveBeenCalledWith('wheel', wheelRegistration?.[1])
   })
 
-  it('keeps text, canvas hit selection, pan, zoom, and reset controls synchronized', () => {
+  it('keeps text, simple canvas hit selection, pan, and reset controls synchronized', () => {
     const onSelectSpan = vi.fn()
-    const { value } = render('root', onSelectSpan)
+    const { value, view } = render({ traceId: TRACE_ID, spanId: 'root' }, onSelectSpan)
     const elements = walk(value)
-    const canvas = elements.find((element) => element.type === 'canvas')!
     const renderer = harness.state.instances[0]!
-    const capture = vi.fn()
+    expect(renderer.setView).toHaveBeenCalledWith(view, 'root')
 
-    canvas.props.onPointerDown({ pointerId: 4, clientX: 10, clientY: 20, currentTarget: { setPointerCapture: capture } })
-    canvas.props.onPointerMove({ clientX: 30, clientY: 20, nativeEvent: { offsetX: 30, offsetY: 20 } })
-    canvas.props.onPointerUp({ clientX: 30, clientY: 20, nativeEvent: { offsetX: 30, offsetY: 20 } })
-    expect(capture).toHaveBeenCalledWith(4)
-    expect(renderer.panBy).toHaveBeenCalledWith(20)
-
-    canvas.props.onClick({ nativeEvent: { offsetX: 30, offsetY: 20 } })
+    harness.state.fakeCanvas.dispatch('pointerdown', { pointerId: 4, clientX: 30, clientY: 20, offsetX: 30, offsetY: 20 })
+    harness.state.fakeCanvas.dispatch('pointerup', { pointerId: 4, clientX: 30, clientY: 20, offsetX: 30, offsetY: 20 })
+    harness.state.fakeCanvas.dispatch('click', { offsetX: 30, offsetY: 20 })
+    expect(harness.state.fakeCanvas.setPointerCapture).toHaveBeenCalledWith(4)
+    expect(harness.state.fakeCanvas.releasePointerCapture).toHaveBeenCalledWith(4)
     expect(renderer.spanAt).toHaveBeenCalledWith(30, 20)
-    expect(onSelectSpan).toHaveBeenCalledWith('child')
-
-    const preventDefault = vi.fn()
-    canvas.props.onWheel({ deltaY: -1, preventDefault })
-    expect(preventDefault).toHaveBeenCalledOnce()
-    expect(renderer.zoomBy).toHaveBeenCalledWith(1.25)
+    expect(onSelectSpan).toHaveBeenCalledWith({ traceId: TRACE_ID, spanId: 'child' })
 
     const reset = elements.find((element) => element.type === 'button' && element.props.children === 'Reset timeline view')
     reset?.props.onClick()
     expect(reset?.props.type).toBe('button')
     expect(renderer.resetView).toHaveBeenCalledOnce()
 
-    const row = elements.find((element) => element.props['aria-label'] === 'Select recorded span child')
+    const row = elements.find((element) => element.type === 'button' && text(element.props.children).startsWith('db / SQL <users>'))
     row?.props.onClick()
-    expect(onSelectSpan).toHaveBeenLastCalledWith('child')
+    expect(onSelectSpan).toHaveBeenLastCalledWith({ traceId: TRACE_ID, spanId: 'child' })
+  })
+
+  it('suppresses click selection after a pointer drag and resets on lost capture', () => {
+    const onSelectSpan = vi.fn()
+    render(null, onSelectSpan)
+    const renderer = harness.state.instances[0]!
+
+    harness.state.fakeCanvas.dispatch('pointerdown', { pointerId: 7, clientX: 10, clientY: 20, offsetX: 10, offsetY: 20 })
+    harness.state.fakeCanvas.dispatch('pointermove', { pointerId: 7, clientX: 30, clientY: 20, offsetX: 30, offsetY: 20 })
+    harness.state.fakeCanvas.dispatch('pointerup', { pointerId: 7, clientX: 30, clientY: 20, offsetX: 30, offsetY: 20 })
+    harness.state.fakeCanvas.dispatch('lostpointercapture', { pointerId: 7 })
+    harness.state.fakeCanvas.dispatch('click', { offsetX: 30, offsetY: 20 })
+
+    expect(renderer.panBy).toHaveBeenCalledWith(20)
+    expect(harness.state.fakeCanvas.releasePointerCapture).toHaveBeenCalledWith(7)
+    expect(onSelectSpan).not.toHaveBeenCalled()
+
+    harness.state.fakeCanvas.dispatch('pointerdown', { pointerId: 8, clientX: 30, clientY: 20, offsetX: 30, offsetY: 20 })
+    harness.state.fakeCanvas.dispatch('pointercancel', { pointerId: 8, clientX: 30, clientY: 20, offsetX: 30, offsetY: 20 })
+    expect(harness.state.fakeCanvas.releasePointerCapture).toHaveBeenCalledWith(8)
+
+    harness.state.fakeCanvas.dispatch('pointerdown', { pointerId: 9, clientX: 10, clientY: 20, offsetX: 10, offsetY: 20 })
+    harness.state.fakeCanvas.dispatch('pointermove', { pointerId: 9, clientX: 20, clientY: 20, offsetX: 20, offsetY: 20 })
+    harness.state.fakeCanvas.dispatch('lostpointercapture', { pointerId: 9 })
+    harness.state.fakeCanvas.dispatch('click', { offsetX: 20, offsetY: 20 })
+    expect(onSelectSpan).not.toHaveBeenCalled()
+  })
+
+  it('does not pass a same span ID selection from another trace to the renderer', () => {
+    const { view } = render({ traceId: '22222222222222222222222222222222', spanId: 'child' })
+    expect(harness.state.instances[0]?.setView).toHaveBeenCalledWith(view, null)
   })
 })
