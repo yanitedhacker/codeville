@@ -36,6 +36,7 @@ export function Atlas(props: AtlasProps) {
   const stageRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const rendererRef = useRef<AtlasRenderer | null>(null)
+  const previousRuntimeRef = useRef<RuntimeTraceBundle | undefined>(runtime)
 
   const [selected, setSelected] = useState<string[]>([])
   const [selectedLink, setSelectedLink] = useState<AtlasLink | null>(null)
@@ -68,8 +69,14 @@ export function Atlas(props: AtlasProps) {
   layoutModeRef.current = layoutMode
 
   useEffect(() => {
-    if (!runtime && mode === 'runtime') setMode('static')
-  }, [runtime, mode])
+    const previousRuntime = previousRuntimeRef.current
+    previousRuntimeRef.current = runtime
+    if (!runtime) {
+      if (mode === 'runtime') setMode('static')
+      return
+    }
+    if (runtime !== previousRuntime && props.initialMode === 'runtime') setMode('runtime')
+  }, [runtime, props.initialMode, mode])
 
   useEffect(() => {
     if (tourIndex != null) {

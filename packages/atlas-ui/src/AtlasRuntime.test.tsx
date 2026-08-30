@@ -335,6 +335,55 @@ describe('Atlas runtime mode integration', () => {
     }))
   })
 
+  it('activates a newly supplied runtime bundle on the existing mounted Atlas', () => {
+    const onClearRuntime = vi.fn()
+    renderAtlas({ atlas })
+    const staticRenderer = harness.state.renderers[0]!
+    harness.state.headerProps!.onLayout('dependency')
+    harness.state.systemMapProps!.onArea('src')
+    harness.state.systemMapProps!.onFilter('api')
+    harness.state.systemMapProps!.onSelect('file:src/api.ts')
+    renderAtlas({ atlas })
+
+    const runtimeProps: AtlasProps = { atlas, runtime, initialMode: 'runtime', onClearRuntime }
+    renderAtlas(runtimeProps)
+    expect(harness.state.runtimeLensProps).toBeNull()
+
+    renderAtlas(runtimeProps)
+    expect(harness.state.runtimeLensProps).toEqual(expect.objectContaining({ runtime, onClearRuntime }))
+    expect(harness.state.headerProps).toBeNull()
+    expect(staticRenderer.dispose).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not reopen the same runtime bundle after the user returns to static mode', () => {
+    const runtimeProps: AtlasProps = { atlas, runtime, initialMode: 'runtime', onClearRuntime: vi.fn() }
+    renderAtlas({ atlas })
+    harness.state.headerProps!.onLayout('dependency')
+    harness.state.systemMapProps!.onArea('src')
+    harness.state.systemMapProps!.onFilter('api')
+    harness.state.systemMapProps!.onSelect('file:src/api.ts')
+    renderAtlas({ atlas })
+
+    renderAtlas(runtimeProps)
+    renderAtlas(runtimeProps)
+    harness.state.runtimeLensProps!.onShowStatic()
+    renderAtlas(runtimeProps)
+
+    const staticRenderer = harness.state.renderers[1]!
+    expect(staticRenderer.setLayout).toHaveBeenCalledWith('dependency')
+    expect(staticRenderer.setView).toHaveBeenCalledWith(expect.objectContaining({
+      selected: ['file:src/api.ts'],
+      activeArea: 'src',
+      filter: 'api',
+    }))
+
+    renderAtlas(runtimeProps)
+    expect(harness.state.runtimeLensProps).toBeNull()
+    expect(harness.state.canvasProps?.['aria-label']).toContain('Interactive codebase map')
+    expect(harness.state.renderers).toHaveLength(2)
+    expect(harness.state.renderers[1]).toBe(staticRenderer)
+  })
+
   it('disposes static mode once and creates a fresh renderer when static mode returns', () => {
     const onClearRuntime = vi.fn()
     const props: AtlasProps = { atlas, runtime, initialMode: 'static', onClearRuntime }
