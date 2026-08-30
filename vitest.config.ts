@@ -13,6 +13,6 @@ export default defineConfig({
   },
   test: {
     globals: true,
-    include: ['packages/**/*.test.ts', 'packages/**/*.test.tsx', 'apps/**/*.test.ts'],
+    include: ['packages/**/*.test.ts', 'packages/**/*.test.tsx', 'apps/**/*.test.ts', 'apps/**/*.test.tsx'],
   },
 })
