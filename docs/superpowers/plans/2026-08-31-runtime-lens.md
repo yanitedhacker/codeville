@@ -1017,6 +1017,7 @@ git commit -m "feat(cli): export runtime lens offline"
 - Modify: `README.md`
 - Modify: `docs/architecture.md`
 - Modify: `docs/security.md`
+- Create: `fixtures/README.md`
 - Create: `docs/superpowers/plans/2026-08-31-runtime-lens-verification.md`
 
 **Interfaces:**
@@ -1046,6 +1047,8 @@ pnpm atlas . \
 
 State directly that runtime data is imported observation, not Codeville capture, field qualification, or a complete execution proof. Document both `.json` and `.jsonl` inputs, the sanitized-telemetry export label, and the fact that Markdown reports exclude runtime trace data.
 
+Create `fixtures/README.md` and document the two public runtime fixtures as equivalent normalized evidence: two traces, three spans, one recorded error, one redaction, one exact recorded source path, one JSON document, and two JSONL documents. State that fixture data is synthetic test input and not real capture or field evidence.
+
 - [ ] **Step 2: Run the fixture equivalence test first**
 
 Run: `pnpm test -- packages/core/src/runtime/derive.test.ts`
@@ -1062,11 +1065,22 @@ OTLP JSON/JSONL -> parse -> normalize/redact -> derive -> exact correlate -> Run
 
 In `docs/security.md`, record the exact default limits, redaction keys, no-network/no-execution rules, hostile trace attacker, raw-input non-retention, CSP, and exact-ID preservation. Keep the existing hostile-repository and static export sections unchanged.
 
+Run exact read-only documentation assertions after editing and record each exit:
+
+```bash
+rg -n -F 'Runtime data is imported observation' README.md
+rg -n -F 'OTLP JSON/JSONL -> parse -> normalize/redact -> derive -> exact correlate -> Runtime Lens -> offline export' docs/architecture.md
+rg -n -F 'Runtime trace import and export' docs/security.md
+rg -n -F 'minimal-otlp.jsonl' fixtures/README.md
+```
+
 - [ ] **Step 4: Run the full completion audit**
 
 Run each command separately and record its exit status and exact result:
 
 ```bash
+pnpm test -- packages/core/src/runtime/derive.test.ts
+pnpm test -- packages/atlas-ui/src/standalone-html.test.ts packages/atlas-ui/src/standalone.test.tsx packages/cli/src/args.test.ts apps/web/src/App.test.tsx
 pnpm test
 pnpm typecheck
 pnpm -F @codeville/atlas-ui build
@@ -1076,7 +1090,9 @@ pnpm langs
 pnpm realrepo .
 ```
 
-Then generate `/tmp/codeville-runtime-atlas.html` from the JSON fixture and `/tmp/codeville-runtime-atlas-jsonl.html` from the JSONL fixture. Record the exact, equal trace/span counts from both CLI runs. Import both public fixtures through the browser picker and record that each produces the same trace/span counts without network or storage calls. Open both HTML files through `file://` and verify:
+Generate `/tmp/codeville-runtime-atlas.html` from the JSON fixture with `--report /tmp/codeville-runtime-report.md`, and generate `/tmp/codeville-runtime-atlas-jsonl.html` from the JSONL fixture. Record exact output paths, sizes, hashes, input-document counts, redaction counts, and equal trace/span counts. Run `rg -n 'fixture-secret'` over both HTML files and record its expected exit `1` with no matches; do not convert that absence check into exit `0`. Assert the exact Markdown exclusion sentence in the generated report.
+
+Import both public fixtures through the browser picker and record that each produces the same trace/span counts without calls to the guarded import-time APIs: `fetch`, XHR, WebSocket, beacon, local/session storage, or Worker. Do not broaden this automated claim to every possible browser persistence API. Open both HTML files through `file://` and verify at desktop, exactly 860px, and 390px:
 
 - Runtime Lens opens with the fixture trace.
 - Timeline, call tree, hot path, error paths, and span details show the same selected trace.
@@ -1084,15 +1100,26 @@ Then generate `/tmp/codeville-runtime-atlas.html` from the JSON fixture and `/tm
 - The text timeline exposes every visible span.
 - No network request occurs.
 - A 390px viewport has no horizontal overflow.
-- The hostile script string is text only.
+- Visible runtime buttons, inputs, and selects are at least 44px high at 390px.
+- Reduced-motion media state disables runtime animation and transition.
 - The generated Markdown report states that runtime trace data is excluded.
+
+The public fixtures do not contain the hostile script string. Use the passing Task 9 `standalone-html.test.ts` breakout case as the authoritative hostile-string evidence; do not claim a manual fixture check. Record keyboard access, visible focus, native controls, polite status, non-color error labels, and complete text-timeline observations separately. No axe runner is installed, so do not claim an axe or formal WCAG pass.
+
+Use one verification-record row per command or browser check:
+
+```text
+Exact command or check | Exit/status | Exact counts/result | Skips | Evidence boundary
+```
+
+Mark unavailable browser automation as `NOT_RUN` with the exact reason. A `NOT_RUN` result is not a pass.
 
 Write all results to `docs/superpowers/plans/2026-08-31-runtime-lens-verification.md`. Mark unavailable browser automation as `NOT_RUN`; do not convert it to a pass.
 
 - [ ] **Step 5: Commit fixtures, documentation, and verification evidence**
 
 ```bash
-git add README.md docs/architecture.md docs/security.md docs/superpowers/plans/2026-08-31-runtime-lens-verification.md
+git add README.md docs/architecture.md docs/security.md fixtures/README.md docs/superpowers/plans/2026-08-31-runtime-lens-verification.md
 git commit -m "docs: verify runtime lens end to end"
 ```
 
