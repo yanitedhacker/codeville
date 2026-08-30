@@ -26,7 +26,7 @@ interface SourceFields {
 }
 
 interface NormalizedPath {
-  absolute: boolean
+  flavor: 'posix-absolute' | 'drive-absolute' | 'unc' | 'relative' | 'drive-relative' | 'rooted'
   prefix: string
   segments: string[]
   rawSegments: string[]
@@ -38,11 +38,7 @@ export function correlateRuntimeSources(
   atlas: Atlas,
   options: RuntimeSourceOptions = {},
 ): RuntimeTraceBundle {
-  const filesByPath = new Map(
-    atlas.nodes
-      .filter((node) => node.kind === 'file')
-      .map((node) => [node.path, node] as const),
-  )
+  const filesByPath = visibleFilesByPath(atlas)
   const sourceRoot = options.sourceRoot === undefined ? undefined : normalizePath(options.sourceRoot)
   const usedDeprecated = new Set<DeprecatedSourceAttribute>()
   let unmatchedSourceSpans = 0
@@ -72,45 +68,76 @@ export function correlateRuntimeSources(
 
 function sourceFields(attributes: RuntimeAttribute[]): SourceFields {
   const deprecated = new Set<DeprecatedSourceAttribute>()
-  const path = readSourceAttribute(attributes, SOURCE_ATTRIBUTES[0], deprecated)
-  const functionName = readSourceAttribute(attributes, SOURCE_ATTRIBUTES[1], deprecated)
-  const lineNumber = readSourceAttribute(attributes, SOURCE_ATTRIBUTES[2], deprecated)
+  const path = readStringSourceAttribute(attributes, SOURCE_ATTRIBUTES[0], deprecated)
+  const functionName = readStringSourceAttribute(attributes, SOURCE_ATTRIBUTES[1], deprecated)
+  const lineNumber = readLineSourceAttribute(attributes, SOURCE_ATTRIBUTES[2], deprecated)
   return {
     recordedPath: path.value,
     functionName: functionName.value,
     lineNumber: lineNumber.value,
     deprecated,
-    hasRecordedPath: path.present,
+    hasRecordedPath: path.value !== undefined,
   }
 }
 
-function readSourceAttribute(
+function readStringSourceAttribute(
   attributes: RuntimeAttribute[],
   names: typeof SOURCE_ATTRIBUTES[number],
   deprecated: Set<DeprecatedSourceAttribute>,
 ): { present: boolean; value?: string } {
+  return readPreferredSourceAttribute(attributes, names, deprecated, stringSourceValue)
+}
+
+function readLineSourceAttribute(
+  attributes: RuntimeAttribute[],
+  names: typeof SOURCE_ATTRIBUTES[number],
+  deprecated: Set<DeprecatedSourceAttribute>,
+): { present: boolean; value?: string } {
+  return readPreferredSourceAttribute(attributes, names, deprecated, lineSourceValue)
+}
+
+function readPreferredSourceAttribute(
+  attributes: RuntimeAttribute[],
+  names: typeof SOURCE_ATTRIBUTES[number],
+  deprecated: Set<DeprecatedSourceAttribute>,
+  extract: (value: RuntimeValue) => string | undefined,
+): { present: boolean; value?: string } {
   const stable = attributes.find((attribute) => attribute.key === names.stable)
-  if (stable !== undefined) return { present: true, value: sourceValue(stable.value) }
+  if (stable !== undefined) return { present: true, value: extract(stable.value) }
 
   const legacy = attributes.find((attribute) => attribute.key === names.deprecated)
   if (legacy === undefined) return { present: false }
+  const value = extract(legacy.value)
+  if (value === undefined) return { present: true }
   deprecated.add(names.deprecated)
-  return { present: true, value: sourceValue(legacy.value) }
+  return { present: true, value }
 }
 
-function sourceValue(value: RuntimeValue): string | undefined {
-  return value.type === 'string' || value.type === 'int' ? value.value : undefined
+function stringSourceValue(value: RuntimeValue): string | undefined {
+  return value.type === 'string' ? value.value : undefined
+}
+
+function lineSourceValue(value: RuntimeValue): string | undefined {
+  if (value.type !== 'int') return undefined
+  try {
+    const line = BigInt(value.value)
+    return line > 0n && line <= BigInt(Number.MAX_SAFE_INTEGER) ? value.value : undefined
+  } catch {
+    return undefined
+  }
 }
 
 function matchSource(
   fields: SourceFields,
-  filesByPath: ReadonlyMap<string, Atlas['nodes'][number]>,
+  filesByPath: ReadonlyMap<string, Atlas['nodes'][number] | undefined>,
   sourceRoot: NormalizedPath | undefined,
 ): RuntimeSourceMatch | undefined {
   const recorded = normalizePath(fields.recordedPath!)
-  const path = recorded.absolute
-    ? relativePathUnderRoot(recorded, sourceRoot)
-    : normalizedRelativePath(recorded)
+  const path = recorded.flavor === 'relative'
+    ? normalizedRelativePath(recorded)
+    : isAbsoluteFlavor(recorded.flavor)
+      ? relativePathUnderRoot(recorded, sourceRoot)
+      : undefined
   if (path === undefined) return undefined
 
   const node = filesByPath.get(path)
@@ -126,8 +153,8 @@ function matchSource(
 }
 
 function relativePathUnderRoot(recorded: NormalizedPath, sourceRoot: NormalizedPath | undefined): string | undefined {
-  if (sourceRoot === undefined || !sourceRoot.absolute || sourceRoot.escaped || recorded.escaped) return undefined
-  if (recorded.prefix !== sourceRoot.prefix || recorded.segments.length < sourceRoot.segments.length) return undefined
+  if (sourceRoot === undefined || !isAbsoluteFlavor(sourceRoot.flavor) || sourceRoot.escaped || recorded.escaped) return undefined
+  if (recorded.flavor !== sourceRoot.flavor || recorded.prefix !== sourceRoot.prefix || recorded.segments.length < sourceRoot.segments.length) return undefined
   for (let index = 0; index < sourceRoot.segments.length; index += 1) {
     if (recorded.segments[index] !== sourceRoot.segments[index]) return undefined
   }
@@ -141,11 +168,18 @@ function normalizedRelativePath(path: NormalizedPath): string | undefined {
 }
 
 function normalizePath(value: string): NormalizedPath {
-  const path = value.replace(/\\+/g, '/').replace(/\/+/g, '/')
-  const drive = /^([A-Za-z]:)\//.exec(path)
-  const absolute = drive !== null || path.startsWith('/')
-  const prefix = drive?.[1] ?? (absolute ? '/' : '')
-  const withoutPrefix = drive === null ? path : path.slice(drive[0].length)
+  const flavor = classifyPath(value)
+  const slashPath = value.replace(/\\/g, '/')
+  const drive = /^([A-Za-z]:)\//.exec(slashPath)
+  const uncSegments = flavor === 'unc'
+    ? slashPath.replace(/^\/+/u, '').split('/').filter((segment) => segment !== '' && segment !== '.')
+    : undefined
+  const prefix = flavor === 'unc'
+    ? uncSegments !== undefined && uncSegments.length >= 2 ? `//${uncSegments[0]!}/${uncSegments[1]!}` : ''
+    : drive?.[1] ?? (flavor === 'posix-absolute' ? '/' : '')
+  const withoutPrefix = flavor === 'unc'
+    ? uncSegments?.slice(2).join('/') ?? ''
+    : drive === null ? slashPath : slashPath.slice(drive[0].length)
   const rawSegments = withoutPrefix.split('/').filter((segment) => segment !== '' && segment !== '.')
   const segments: string[] = []
   let escaped = false
@@ -159,7 +193,20 @@ function normalizePath(value: string): NormalizedPath {
     segments.push(segment)
   }
 
-  return { absolute, prefix, segments, rawSegments, escaped }
+  return { flavor, prefix, segments, rawSegments, escaped }
+}
+
+function classifyPath(value: string): NormalizedPath['flavor'] {
+  if (/^(?:\\\\|\/\/)/u.test(value)) return 'unc'
+  if (/^[A-Za-z]:[\\/]/u.test(value)) return 'drive-absolute'
+  if (/^[A-Za-z]:/u.test(value)) return 'drive-relative'
+  if (value.startsWith('/')) return 'posix-absolute'
+  if (value.startsWith('\\')) return 'rooted'
+  return 'relative'
+}
+
+function isAbsoluteFlavor(flavor: NormalizedPath['flavor']): boolean {
+  return flavor === 'posix-absolute' || flavor === 'drive-absolute' || flavor === 'unc'
 }
 
 function relativeSegmentsWithinRoot(rawSegments: readonly string[], rootSegments: readonly string[]): string[] | undefined {
@@ -185,4 +232,14 @@ function sourceWarnings(usedDeprecated: ReadonlySet<DeprecatedSourceAttribute>):
     .map(({ deprecated }) => deprecated)
     .filter((attribute): attribute is DeprecatedSourceAttribute => usedDeprecated.has(attribute))
     .map((attribute) => ({ code: 'deprecated-runtime-source-attribute', attribute }))
+}
+
+function visibleFilesByPath(atlas: Atlas): Map<string, Atlas['nodes'][number] | undefined> {
+  const filesByPath = new Map<string, Atlas['nodes'][number] | undefined>()
+  for (const node of atlas.nodes) {
+    if (node.kind !== 'file') continue
+    if (filesByPath.has(node.path)) filesByPath.set(node.path, undefined)
+    else filesByPath.set(node.path, node)
+  }
+  return filesByPath
 }

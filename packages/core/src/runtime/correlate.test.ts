@@ -63,6 +63,35 @@ describe('correlateRuntimeSources', () => {
     })
   })
 
+  it('rejects ambiguous Windows rooted forms and contains UNC paths by authority and share', () => {
+    const atlas = atlasWithFiles(['src/api.ts'])
+    const driveRelative = correlateRuntimeSources(bundleWithAttributes([sourcePath('C:src\\api.ts')]), atlas, {
+      sourceRoot: 'C:\\work\\app',
+    })
+    const driveLessRooted = correlateRuntimeSources(bundleWithAttributes([sourcePath('\\src\\api.ts')]), atlas, {
+      sourceRoot: 'C:\\work\\app',
+    })
+    const unc = correlateRuntimeSources(bundleWithAttributes([sourcePath('\\\\server\\share\\src\\api.ts')]), atlas, {
+      sourceRoot: '\\\\server\\share',
+    })
+    const differentShare = correlateRuntimeSources(bundleWithAttributes([sourcePath('\\\\server\\share\\src\\api.ts')]), atlas, {
+      sourceRoot: '\\\\server\\other',
+    })
+    const caseChangedAuthority = correlateRuntimeSources(bundleWithAttributes([sourcePath('\\\\Server\\share\\src\\api.ts')]), atlas, {
+      sourceRoot: '\\\\server\\share',
+    })
+    const posixRoot = correlateRuntimeSources(bundleWithAttributes([sourcePath('\\\\server\\share\\src\\api.ts')]), atlas, {
+      sourceRoot: '/server/share',
+    })
+
+    expect(driveRelative.spans[0]!.source).toBeUndefined()
+    expect(driveLessRooted.spans[0]!.source).toBeUndefined()
+    expect(unc.spans[0]!.source).toMatchObject({ nodeId: fileId(atlas, 'src/api.ts') })
+    expect(differentShare.spans[0]!.source).toBeUndefined()
+    expect(caseChangedAuthority.spans[0]!.source).toBeUndefined()
+    expect(posixRoot.spans[0]!.source).toBeUndefined()
+  })
+
   it('uses deprecated attributes only when their stable counterparts are absent', () => {
     const atlas = atlasWithFiles(['src/legacy.ts'])
     const deprecated = correlateRuntimeSources(bundleWithAttributes([
@@ -102,6 +131,54 @@ describe('correlateRuntimeSources', () => {
     expect(stableDetails.report.compatibilityWarnings).toEqual([])
   })
 
+  it('uses only valid tagged values and lets invalid stable keys block deprecated fallbacks', () => {
+    const atlas = atlasWithFiles(['src/api.ts'])
+    const wrongStablePath = correlateRuntimeSources(bundleWithAttributes([
+      otlpAttribute('code.file.path', { intValue: 1 }),
+      otlpAttribute('code.filepath', { stringValue: 'src/api.ts' }),
+    ]), atlas)
+    const wrongStableDetails = correlateRuntimeSources(bundleWithAttributes([
+      sourcePath('src/api.ts'),
+      otlpAttribute('code.function.name', { intValue: 1 }),
+      otlpAttribute('code.function', { stringValue: 'legacyFn' }),
+      otlpAttribute('code.line.number', { stringValue: '7' }),
+      otlpAttribute('code.lineno', { intValue: 7 }),
+    ]), atlas)
+    const wrongDeprecatedValues = correlateRuntimeSources(bundleWithAttributes([
+      otlpAttribute('code.filepath', { intValue: 1 }),
+      otlpAttribute('code.function', { intValue: 1 }),
+      otlpAttribute('code.lineno', { stringValue: '7' }),
+    ]), atlas)
+
+    expect(wrongStablePath.spans[0]!.source).toBeUndefined()
+    expect(wrongStablePath.report.unmatchedSourceSpans).toBe(0)
+    expect(wrongStablePath.report.compatibilityWarnings).toEqual([])
+    expect(wrongStableDetails.spans[0]!.source).toMatchObject({ nodeId: fileId(atlas, 'src/api.ts') })
+    expect(wrongStableDetails.spans[0]!.source).not.toHaveProperty('functionName')
+    expect(wrongStableDetails.spans[0]!.source).not.toHaveProperty('lineNumber')
+    expect(wrongStableDetails.report.compatibilityWarnings).toEqual([])
+    expect(wrongDeprecatedValues.spans[0]!.source).toBeUndefined()
+    expect(wrongDeprecatedValues.report.unmatchedSourceSpans).toBe(0)
+    expect(wrongDeprecatedValues.report.compatibilityWarnings).toEqual([])
+  })
+
+  it('accepts only positive safe integer source line numbers', () => {
+    const atlas = atlasWithFiles(['src/api.ts'])
+    const valid = correlateRuntimeSources(bundleWithAttributes([
+      sourcePath('src/api.ts'),
+      otlpAttribute('code.line.number', { intValue: '9007199254740991' }),
+    ]), atlas)
+
+    expect(valid.spans[0]!.source).toMatchObject({ lineNumber: '9007199254740991' })
+    for (const value of ['0', '-1', '9007199254740992']) {
+      const invalid = correlateRuntimeSources(bundleWithAttributes([
+        sourcePath('src/api.ts'),
+        otlpAttribute('code.line.number', { intValue: value }),
+      ]), atlas)
+      expect(invalid.spans[0]!.source).not.toHaveProperty('lineNumber')
+    }
+  })
+
   it('rejects path traversal above the source root', () => {
     const absolute = correlateRuntimeSources(bundleWithAttributes([sourcePath('/work/app/../../src/api.ts')]), atlasWithFiles(['src/api.ts']), {
       sourceRoot: '/work/app',
@@ -128,6 +205,20 @@ describe('correlateRuntimeSources', () => {
     }
 
     const correlated = correlateRuntimeSources(bundleWithAttributes([sourcePath('src/api.ts')]), directoryOnly)
+
+    expect(correlated.spans[0]!.source).toBeUndefined()
+    expect(correlated.report.unmatchedSourceSpans).toBe(1)
+  })
+
+  it('rejects duplicate visible file paths as ambiguous', () => {
+    const atlas = atlasWithFiles(['src/api.ts'])
+    const file = atlas.nodes.find((node) => node.kind === 'file' && node.path === 'src/api.ts')!
+    const duplicate = {
+      ...atlas,
+      nodes: [...atlas.nodes, { ...file, id: 'duplicate:src/api.ts' }],
+    }
+
+    const correlated = correlateRuntimeSources(bundleWithAttributes([sourcePath('src/api.ts')]), duplicate)
 
     expect(correlated.spans[0]!.source).toBeUndefined()
     expect(correlated.report.unmatchedSourceSpans).toBe(1)
