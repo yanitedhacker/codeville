@@ -255,7 +255,7 @@ All actions use native controls. Status changes use `aria-live="polite"`. Color 
 
 After a repository atlas exists, the footer adds `Import OTLP trace`. The picker accepts `.json` and `.jsonl` files. An optional source-root field is part of the import dialog.
 
-Import runs locally. It performs no `fetch`, XHR, WebSocket, beacon, storage, worker evaluation, or repository write. A failed import leaves the prior Atlas and runtime bundle unchanged and shows a safe error.
+Import runs locally. It performs no `fetch`, XHR, WebSocket, beacon, storage, worker evaluation, or repository write. A successful import opens Runtime Lens on the existing mounted Atlas without discarding its static selection or layout state. A failed import leaves the prior Atlas and runtime bundle unchanged and shows a safe error.
 
 `Clear runtime data` releases the normalized bundle and returns to Static Atlas.
 
@@ -350,6 +350,7 @@ Use strict test-driven development.
 ### Web, CLI, and export
 
 - local file input only and no network or storage API call during trace import;
+- a successful browser import opens Runtime Lens without remounting Atlas or losing static state;
 - previous runtime state survives a rejected replacement import;
 - CLI argument parsing and source-root default;
 - CLI HTML includes runtime data and `.json` plus `--trace` rejects;

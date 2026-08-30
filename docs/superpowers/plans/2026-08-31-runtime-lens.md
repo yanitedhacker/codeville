@@ -714,6 +714,7 @@ git commit -m "feat(atlas-ui): build accessible runtime lens"
 
 - Extends `AtlasProps` as a discriminated static/runtime union. A runtime bundle requires `onClearRuntime: () => void`; static callers remain valid without it. `initialMode` can be `runtime` only in the runtime member.
 - Static mode retains all current props and state.
+- When a new runtime bundle becomes present with `initialMode="runtime"`, the existing mounted Atlas switches to Runtime Lens without a React remount and preserves its static state. Re-rendering with the same bundle does not override a later user-selected mode.
 - Exact source handoff sets static mode, selects the file node, and calls `AtlasRenderer.focusNode(nodeId)` after the static canvas mounts.
 
 - [ ] **Step 1: Write failing integration and CSS contract tests**
@@ -773,6 +774,8 @@ export type AtlasProps = AtlasBaseProps & (
 
 Add `mode` to the static renderer effect dependencies so switching to Runtime Lens disposes the detached static renderer and switching back creates a fresh renderer. Keep current static selection state in React. Clamp mode to `static` when `runtime` becomes absent. Pass the required runtime-member `onClearRuntime` through the Runtime Lens clear control. When a runtime source handoff occurs, store the exact node ID, switch to static, then select and focus it in an effect after renderer creation.
 
+Track the previous runtime-bundle identity after the existing stage, canvas, and renderer refs. If a new non-null bundle arrives with `initialMode="runtime"`, switch the existing Atlas to runtime mode. Do not remount Atlas, and do not switch again for ordinary re-renders with the same bundle. Add an integration test that first renders static Atlas state, then supplies a runtime bundle and proves Runtime Lens opens while the static state is retained when the user returns.
+
 Add `.cv-runtime-root` with the same palette tokens and a four-region desktop grid. At 860px, stack rail, summary/timeline, inspector, and footer. At 480px, keep all runtime buttons and inputs at least 44px high and prevent document-level horizontal overflow.
 
 - [ ] **Step 4: Run all Atlas UI tests, typecheck, and standalone build**
@@ -808,6 +811,7 @@ git commit -m "feat(atlas-ui): integrate runtime lens mode"
 - Modify: `apps/web/src/App.tsx`
 - Create: `apps/web/src/App.test.tsx`
 - Modify: `apps/web/src/drop.css`
+- Modify: `vitest.config.ts`
 
 **Interfaces:**
 
@@ -851,6 +855,8 @@ Parameterize the successful ingest test over the public `minimal-otlp.json` and 
 
 In `App.test.tsx`, use the repository's local React hook-harness pattern and mock only the file picker and pure importer boundary. First accept bundle A, then reject bundle B. Re-render and assert that Atlas still receives the exact bundle A object, the safe error is visible, and no partial bundle B is exposed. Also assert that `Clear runtime data` removes the bundle and returns the Atlas to static mode.
 
+Before the RED run, extend the Vitest include list with `apps/**/*.test.tsx`. Keep every existing include entry. This is test discovery, not production behavior; without it, the planned App test is silently absent from the suite.
+
 - [ ] **Step 2: Run the focused web test and confirm the missing ingest module**
 
 Run: `pnpm test -- apps/web/src/runtime/ingest.test.ts apps/web/src/App.test.tsx`
@@ -880,7 +886,7 @@ export async function ingestRuntimeFile(
 }
 ```
 
-In `App`, set `phase` to working, await the complete import, then replace runtime state once. On error, keep the old bundle and show the safe error. The dialog uses a `.json,.jsonl,application/json` file input, a labeled source-root text field, `Import`, and `Cancel`. Do not use URL input, drag-folder trace import, `fetch`, XHR, WebSocket, beacon, storage, or a worker script on the runtime-import path.
+In `App`, use dedicated runtime-import busy and error state; do not reuse the repository analysis `phase`, because the mounted-Atlas branch does not render that state. At import start, clear only the prior runtime error. Await the complete import, then replace runtime state once. On error, keep the exact old bundle object and show the safe error in the mounted-Atlas branch or dialog. A successful import passes the new bundle with `initialMode="runtime"`; Atlas switches modes without a remount. `New repo` releases runtime, dialog, and runtime-error state. `Clear runtime data` releases only runtime data and feedback while keeping the static Atlas. Render the discriminated static and runtime Atlas members separately. The dialog uses a `.json,.jsonl,application/json` file input, a labeled source-root text field, `Import`, and `Cancel`. Do not use URL input, drag-folder trace import, `fetch`, XHR, WebSocket, beacon, storage, or a worker script on the runtime-import path.
 
 - [ ] **Step 4: Run web, typecheck, and production build gates**
 
@@ -899,7 +905,7 @@ Expected: PASS.
 - [ ] **Step 5: Commit browser-local import**
 
 ```bash
-git add apps/web/src/runtime apps/web/src/App.tsx apps/web/src/App.test.tsx apps/web/src/drop.css
+git add apps/web/src/runtime apps/web/src/App.tsx apps/web/src/App.test.tsx apps/web/src/drop.css vitest.config.ts
 git commit -m "feat(web): import local OTLP traces"
 ```
 
