@@ -1,10 +1,12 @@
 import { spawnSync } from 'node:child_process'
+import { constants } from 'node:fs'
 import { access, chmod, mkdir, mkdtemp, readFile, rm, truncate, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { beforeAll, describe, expect, it } from 'vitest'
+import { beforeAll, describe, expect, it, vi } from 'vitest'
 import {
+  buildAtlas,
   DEFAULT_RUNTIME_IMPORT_LIMITS,
   MAX_FILE_BYTES,
   type RuntimeTraceBundle,
@@ -113,6 +115,18 @@ describe('parseArgs', () => {
       '--trace-source-root',
       '/work/app',
     ])).toThrow(/--trace-source-root requires --trace/)
+  })
+
+  it('rejects empty explicit trace paths before resolving them', () => {
+    expect(() => parseArgs(['/tmp/demo-repo', '--trace', ''])).toThrow(/--trace needs a non-empty path/)
+    expect(() => parseArgs(['/tmp/demo-repo', '--trace', '   '])).toThrow(/--trace needs a non-empty path/)
+    expect(() => parseArgs([
+      '/tmp/demo-repo',
+      '--trace',
+      '/tmp/trace.json',
+      '--trace-source-root',
+      '',
+    ])).toThrow(/--trace-source-root needs a non-empty path/)
   })
 
   it('keeps trace flags on generate only', () => {
@@ -242,6 +256,125 @@ describe('CLI runtime trace boundary', () => {
     }
   }, 120_000)
 
+  it('does not classify inert imported CSS-like text as an active resource', () => {
+    const inert = 'url(https://e.invalid/x)'
+    const html = `<style>.runtime { color: inherit }</style><script>window.__CODEVILLE_RUNTIME__=${JSON.stringify({ name: inert })}</script>`
+
+    expect(html).toContain(inert)
+    expect(networkCapableReferences(html)).toEqual([])
+    expect(networkCapableReferences(
+      '<script src="bundle.js"></script><style>@import url(https://e.invalid/active.css)</style>',
+    )).not.toEqual([])
+  })
+
+  it('uses one bounded non-blocking handle and closes it on success and growth', async () => {
+    const changedBytes = Buffer.from('{}xx')
+    const changedClose = vi.fn(async () => {})
+    const changedRead = vi.fn(async (buffer: Buffer, offset: number, length: number) => {
+      expect(length).toBe(4)
+      changedBytes.copy(buffer, offset)
+      return { bytesRead: changedBytes.length, buffer }
+    })
+    const changedHandle = {
+      stat: vi.fn(async () => ({ size: 3, isFile: () => true })),
+      read: changedRead,
+      close: changedClose,
+    }
+
+    const acceptedBytes = Buffer.from('{"resourceSpans":[]}')
+    const acceptedReportedSize = acceptedBytes.length + 5
+    let acceptedReadDone = false
+    const acceptedClose = vi.fn(async () => {})
+    const acceptedRead = vi.fn(async (buffer: Buffer, offset: number, length: number) => {
+      if (acceptedReadDone) {
+        expect(length).toBe(acceptedReportedSize + 1 - acceptedBytes.length)
+        return { bytesRead: 0, buffer }
+      }
+      expect(length).toBe(acceptedReportedSize + 1)
+      acceptedReadDone = true
+      acceptedBytes.copy(buffer, offset)
+      return { bytesRead: acceptedBytes.length, buffer }
+    })
+    const acceptedHandle = {
+      stat: vi.fn(async () => ({ size: acceptedReportedSize, isFile: () => true })),
+      read: acceptedRead,
+      close: acceptedClose,
+    }
+
+    const oversizedRead = vi.fn()
+    const oversizedClose = vi.fn(async () => {})
+    const oversizedHandle = {
+      stat: vi.fn(async () => ({
+        size: DEFAULT_RUNTIME_IMPORT_LIMITS.maxInputBytes + 1,
+        isFile: () => true,
+      })),
+      read: oversizedRead,
+      close: oversizedClose,
+    }
+
+    const openTrace = vi.fn()
+      .mockResolvedValueOnce(changedHandle)
+      .mockResolvedValueOnce(oversizedHandle)
+      .mockResolvedValueOnce(acceptedHandle)
+    const pathRead = vi.fn()
+    vi.resetModules()
+    vi.doMock('node:fs/promises', async () => ({
+      ...(await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises')),
+      open: openTrace,
+      readFile: pathRead,
+    }))
+
+    try {
+      const { readRuntimeTrace } = await import('./index.js')
+      const atlas = buildAtlas([{ path: 'src/index.ts', text: 'export const value = 1\n' }])
+
+      await expect(readRuntimeTrace('/tmp/growing.json', atlas, '/tmp')).rejects.toThrow(
+        'Runtime trace changed while it was being read.',
+      )
+      await expect(readRuntimeTrace('/tmp/oversized.json', atlas, '/tmp')).rejects.toMatchObject({
+        code: 'limit',
+        limit: 'maxInputBytes',
+        actual: DEFAULT_RUNTIME_IMPORT_LIMITS.maxInputBytes + 1,
+      })
+      await expect(readRuntimeTrace('/tmp/accepted.json', atlas, '/tmp')).resolves.toMatchObject({
+        traces: [],
+        spans: [],
+      })
+
+      expect(openTrace).toHaveBeenNthCalledWith(1, '/tmp/growing.json', constants.O_RDONLY | constants.O_NONBLOCK)
+      expect(openTrace).toHaveBeenNthCalledWith(2, '/tmp/oversized.json', constants.O_RDONLY | constants.O_NONBLOCK)
+      expect(openTrace).toHaveBeenNthCalledWith(3, '/tmp/accepted.json', constants.O_RDONLY | constants.O_NONBLOCK)
+      expect(pathRead).not.toHaveBeenCalled()
+      expect(oversizedRead).not.toHaveBeenCalled()
+      expect(changedClose).toHaveBeenCalledOnce()
+      expect(oversizedClose).toHaveBeenCalledOnce()
+      expect(acceptedClose).toHaveBeenCalledOnce()
+    } finally {
+      vi.doUnmock('node:fs/promises')
+      vi.resetModules()
+    }
+  })
+
+  it.skipIf(process.platform === 'win32')('rejects a named FIFO safely without hanging', async () => {
+    const repo = await fixtureRepo('cv-cli-fifo-')
+    const traceDir = await mkdtemp(join(tmpdir(), 'cv-cli-fifo-trace-'))
+    const trace = join(traceDir, 'trace.fifo')
+    const out = join(traceDir, 'atlas.html')
+    try {
+      const made = spawnSync('mkfifo', [trace], { encoding: 'utf8' })
+      expect(made.status, `${made.stderr}${made.stdout}`).toBe(0)
+
+      const result = runCliDirect([repo, '--trace', trace, '-o', out], 2_000)
+      expect(result.error).toBeUndefined()
+      expect(result.status).toBe(1)
+      expect(result.stderr).toContain('Runtime trace must be a regular file.')
+      await expect(access(out)).rejects.toThrow()
+    } finally {
+      await rm(repo, { recursive: true, force: true })
+      await rm(traceDir, { recursive: true, force: true })
+    }
+  }, 10_000)
+
   it('defaults exact source correlation to the analyzed repository root', async () => {
     const fixture = await fixtureRepo('cv-cli-source-root-', 'packages/core/src/runtime/index.ts')
     const repo = join(fixture, 'packages/core')
@@ -278,7 +411,7 @@ describe('CLI runtime trace boundary', () => {
     }
   }, 120_000)
 
-  it('rejects an unreadable sparse over-limit trace before reading it', async () => {
+  it('rejects a sparse over-limit trace before reading its content', async () => {
     const repo = await fixtureRepo('cv-cli-over-limit-')
     const traceDir = await mkdtemp(join(tmpdir(), 'cv-cli-over-limit-trace-'))
     const trace = join(traceDir, 'too-large.json')
@@ -286,7 +419,7 @@ describe('CLI runtime trace boundary', () => {
     try {
       await writeFile(trace, '')
       await truncate(trace, DEFAULT_RUNTIME_IMPORT_LIMITS.maxInputBytes + 1)
-      await chmod(trace, 0o000)
+      await chmod(trace, 0o400)
 
       const result = runCli([repo, '--trace', trace, '-o', out])
       expect(result.status).toBe(1)
@@ -384,6 +517,14 @@ function runCli(args: string[]) {
   })
 }
 
+function runCliDirect(args: string[], timeout: number) {
+  return spawnSync(process.execPath, ['--import', 'tsx', 'packages/cli/src/index.ts', ...args], {
+    cwd: REPO_ROOT,
+    encoding: 'utf8',
+    timeout,
+  })
+}
+
 async function fixtureRepo(prefix: string, sourcePath = 'src/index.ts'): Promise<string> {
   const repo = await mkdtemp(join(tmpdir(), prefix))
   const source = join(repo, sourcePath)
@@ -400,11 +541,22 @@ function embeddedRuntime(html: string): RuntimeTraceBundle {
 }
 
 function networkCapableReferences(html: string): string[] {
-  return [
-    /<script\b[^>]*\bsrc\s*=/gi,
-    /<link\b[^>]*\bhref\s*=/gi,
-    /<(?:img|iframe|frame|source)\b[^>]*\b(?:src|srcset)\s*=\s*["']?(?:https?:)?\/\//gi,
+  const styles = [...html.matchAll(/<style\b[^>]*>(.*?)<\/style\s*>/gis)]
+    .map((match) => match[1] ?? '')
+    .join('\n')
+  const markup = html
+    .replace(/(<script\b[^>]*>).*?(<\/script\s*>)/gis, '$1$2')
+    .replace(/(<style\b[^>]*>).*?(<\/style\s*>)/gis, '$1$2')
+  const startTags = markup.match(/<[A-Za-z][^>]*>/g) ?? []
+  const activeTags = startTags.filter((tag) =>
+    (/<script\b/i.test(tag) && /\bsrc\s*=/i.test(tag))
+    || (/<link\b/i.test(tag) && /\bhref\s*=/i.test(tag))
+    || (/<(?:img|iframe|frame|source)\b/i.test(tag)
+      && /\b(?:src|srcset)\s*=\s*(?:["']\s*)?(?:https?:)?\/\//i.test(tag)),
+  )
+  const remoteCss = [
     /@import\s+(?:url\s*\()?\s*["']?(?:https?:)?\/\//gi,
     /url\(\s*["']?(?:https?:)?\/\//gi,
-  ].flatMap((pattern) => html.match(pattern) ?? [])
+  ].flatMap((pattern) => styles.match(pattern) ?? [])
+  return [...activeTags, ...remoteCss]
 }

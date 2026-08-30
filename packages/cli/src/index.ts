@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-import { mkdir, readFile, rename, stat, writeFile } from 'node:fs/promises'
+import { constants } from 'node:fs'
+import { mkdir, open, readFile, rename, writeFile } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
 import { homedir } from 'node:os'
 import { dirname, resolve } from 'node:path'
@@ -139,17 +140,36 @@ async function generate(args: GenerateArgs): Promise<void> {
   log(`wrote ${args.out} in ${Date.now() - t0}ms`)
 }
 
-async function readRuntimeTrace(
+export async function readRuntimeTrace(
   path: string,
   atlas: Atlas,
   sourceRoot: string,
 ): Promise<RuntimeTraceBundle> {
   const limit = DEFAULT_RUNTIME_IMPORT_LIMITS.maxInputBytes
-  const metadata = await stat(path)
-  if (metadata.size > limit) throw RuntimeImportError.limit('maxInputBytes', metadata.size)
+  const handle = await open(path, constants.O_RDONLY | constants.O_NONBLOCK)
+  let bytes: Buffer
+  try {
+    const metadata = await handle.stat()
+    if (!metadata.isFile()) {
+      throw new RuntimeImportError('schema', 'Runtime trace must be a regular file.')
+    }
+    if (metadata.size > limit) throw RuntimeImportError.limit('maxInputBytes', metadata.size)
 
-  const bytes = await readFile(path)
-  if (bytes.byteLength > limit) throw RuntimeImportError.limit('maxInputBytes', bytes.byteLength)
+    const capacity = Math.min(metadata.size + 1, limit + 1)
+    const buffer = Buffer.alloc(capacity)
+    let bytesRead = 0
+    while (bytesRead < capacity) {
+      const result = await handle.read(buffer, bytesRead, capacity - bytesRead, null)
+      if (result.bytesRead === 0) break
+      bytesRead += result.bytesRead
+    }
+    if (bytesRead > metadata.size) {
+      throw new RuntimeImportError('syntax', 'Runtime trace changed while it was being read.')
+    }
+    bytes = buffer.subarray(0, bytesRead)
+  } finally {
+    await handle.close()
+  }
 
   let text: string
   try {
@@ -282,11 +302,16 @@ function parseArgs(argv: string[]): CliArgs | null {
       if (value === undefined) throw new Error(`${arg} needs a value`)
       return value
     }
+    const nextPath = (): string => {
+      const value = next()
+      if (!value.trim()) throw new Error(`${arg} needs a non-empty path`)
+      return value
+    }
     if (arg === '-h' || arg === '--help') return null
     else if (arg === '-o' || arg === '--out') out = next()
     else if (command === 'generate' && arg === '--report') report = next()
-    else if (command === 'generate' && arg === '--trace') trace = next()
-    else if (command === 'generate' && arg === '--trace-source-root') traceSourceRoot = next()
+    else if (command === 'generate' && arg === '--trace') trace = nextPath()
+    else if (command === 'generate' && arg === '--trace-source-root') traceSourceRoot = nextPath()
     else if (arg === '-e' || arg === '--explain') explainSpec = next()
     else if (arg === '--max-nodes') {
       const n = Number(next())
@@ -341,8 +366,8 @@ function parseArgs(argv: string[]): CliArgs | null {
     ...shared,
     out: resolvedOut,
     ...(report ? { report: resolve(process.cwd(), report) } : {}),
-    ...(trace ? { trace: resolve(process.cwd(), trace) } : {}),
-    ...(traceSourceRoot ? { traceSourceRoot: resolve(process.cwd(), traceSourceRoot) } : {}),
+    ...(trace !== undefined ? { trace: resolve(process.cwd(), trace) } : {}),
+    ...(traceSourceRoot !== undefined ? { traceSourceRoot: resolve(process.cwd(), traceSourceRoot) } : {}),
   }
 }
 

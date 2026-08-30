@@ -16,16 +16,21 @@ const atlas = buildAtlas(
 describe('renderStandaloneHtml', () => {
   it('embeds normalized runtime data before the bundle with exact CSP and no script breakout', () => {
     const hostile = '</script><script>globalThis.pwned=1</script>'
-    const runtime = runtimeWithSpanName(hostile)
+    const inertCssText = 'url(https://e.invalid/x)'
+    const runtime = runtimeWithSpanName(`${hostile} ${inertCssText}`)
     const html = renderStandaloneHtml(atlas, 'globalThis.rendered=true', '.x{}', runtime)
 
     expect(html).toContain(`<meta http-equiv="Content-Security-Policy" content="${CSP}">`)
     expect(html).toContain('window.__CODEVILLE_RUNTIME__=')
     expect(html.indexOf('window.__CODEVILLE_RUNTIME__=')).toBeLessThan(html.indexOf('globalThis.rendered=true'))
     expect(html).toContain('https://opentelemetry.io/schemas/1.26.0')
+    expect(html).toContain(inertCssText)
     expect(html).toContain('\\u003c/script\\u003e\\u003cscript\\u003eglobalThis.pwned=1')
     expect(html).not.toContain(hostile)
     expect(networkCapableReferences(html)).toEqual([])
+    expect(networkCapableReferences(
+      '<img src="https://e.invalid/active.png"><style>.x{background:url(https://e.invalid/active.png)}</style>',
+    )).not.toEqual([])
   })
 
   it('keeps the legacy three-argument export contract', () => {
@@ -79,11 +84,22 @@ function embeddedRuntime(html: string): RuntimeTraceBundle {
 }
 
 function networkCapableReferences(html: string): string[] {
-  return [
-    /<script\b[^>]*\bsrc\s*=/gi,
-    /<link\b[^>]*\bhref\s*=/gi,
-    /<(?:img|iframe|frame|source)\b[^>]*\b(?:src|srcset)\s*=\s*["']?(?:https?:)?\/\//gi,
+  const styles = [...html.matchAll(/<style\b[^>]*>(.*?)<\/style\s*>/gis)]
+    .map((match) => match[1] ?? '')
+    .join('\n')
+  const markup = html
+    .replace(/(<script\b[^>]*>).*?(<\/script\s*>)/gis, '$1$2')
+    .replace(/(<style\b[^>]*>).*?(<\/style\s*>)/gis, '$1$2')
+  const startTags = markup.match(/<[A-Za-z][^>]*>/g) ?? []
+  const activeTags = startTags.filter((tag) =>
+    (/<script\b/i.test(tag) && /\bsrc\s*=/i.test(tag))
+    || (/<link\b/i.test(tag) && /\bhref\s*=/i.test(tag))
+    || (/<(?:img|iframe|frame|source)\b/i.test(tag)
+      && /\b(?:src|srcset)\s*=\s*(?:["']\s*)?(?:https?:)?\/\//i.test(tag)),
+  )
+  const remoteCss = [
     /@import\s+(?:url\s*\()?\s*["']?(?:https?:)?\/\//gi,
     /url\(\s*["']?(?:https?:)?\/\//gi,
-  ].flatMap((pattern) => html.match(pattern) ?? [])
+  ].flatMap((pattern) => styles.match(pattern) ?? [])
+  return [...activeTags, ...remoteCss]
 }
