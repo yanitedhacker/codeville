@@ -10,6 +10,8 @@
 
 **Spec:** `docs/superpowers/specs/2026-08-31-runtime-lens-design.md`
 
+**Preflight correction:** The 2026-08-31 SDD audit was resolved before Task 1. This revision rejects mixed telemetry, keeps the hot path on true OTLP roots, assigns cycle handling and evidence-path derivation to core, assigns display filtering and geometry to Atlas UI, and adds the missing security, accessibility, replacement-state, export, and JSONL evidence gates.
+
 ## Global Constraints
 
 - Accept local OTLP JSON or JSON Lines with a top-level `resourceSpans` array. Do not add a network receiver.
@@ -66,6 +68,7 @@
 - Modify `packages/atlas-ui/src/standalone-html.ts`: optional runtime payload, CSP, and shared escaping.
 - Modify `packages/atlas-ui/src/standalone.tsx`: read the optional runtime global and open Runtime Lens when present.
 - Create `packages/atlas-ui/src/standalone-html.test.ts`: compatibility, breakout, CSP, and no-network assertions.
+- Create `packages/atlas-ui/src/standalone.test.tsx`: runtime startup and clear-owner state assertions.
 - Modify `packages/cli/src/index.ts`: `--trace`, `--trace-source-root`, HTML integration, and `.json` rejection.
 - Modify `packages/cli/src/args.test.ts`: argument and end-to-end CLI HTML tests.
 
@@ -119,8 +122,18 @@ describe('parseOtlpDocuments', () => {
   it('rejects a top-level object without resourceSpans', () => {
     expect(() => parseOtlpDocuments('{"resourceMetrics":[]}')).toThrow(/OTLP trace object/)
   })
+
+  it.each(['resourceMetrics', 'resourceLogs', 'resourceProfiles'])('rejects a mixed %s signal', (signal) => {
+    expect(() => parseOtlpDocuments(JSON.stringify({ resourceSpans: [], [signal]: [] }))).toThrow(/mixed telemetry/)
+  })
+
+  it('accepts an empty trace export', () => {
+    expect(parseOtlpDocuments('{"resourceSpans":[]}')).toHaveLength(1)
+  })
 })
 ```
+
+Add literal boundary cases that succeed exactly at and fail one byte above `maxInputBytes` and `maxJsonLineBytes`. The JSONL boundary test must use at least two non-empty lines so the input is unambiguously JSONL, and it must verify that no partial document list is returned.
 
 - [ ] **Step 2: Run the focused test and confirm the missing-module failure**
 
@@ -188,7 +201,7 @@ export class RuntimeImportError extends Error {
 }
 ```
 
-In `parseOtlpDocuments`, measure UTF-8 with `TextEncoder`. Try `JSON.parse(trimmed)` first. If it fails, parse each non-empty line and enforce `maxJsonLineBytes`. Require an object with an array-valued `resourceSpans`. Return safe `RuntimeImportError` categories for syntax, schema, and limits.
+In `parseOtlpDocuments`, measure UTF-8 with `TextEncoder`. Try `JSON.parse(trimmed)` first. If it fails, parse each non-empty line and enforce `maxJsonLineBytes`. Require an object with an array-valued `resourceSpans`; an empty array is valid. Reject an object that also contains a known non-trace signal such as `resourceMetrics`, `resourceLogs`, or `resourceProfiles`. Unknown extension fields remain available for Task 2 structural-path counting, but their values must not enter a public model. Return safe `RuntimeImportError` categories for syntax, schema, and limits. Task 1 defines the tagged `RuntimeValue` contract; Task 2 owns `AnyValue` decoding.
 
 - [ ] **Step 4: Run focused tests and typecheck core imports**
 
@@ -225,7 +238,7 @@ git commit -m "feat(core): parse bounded OTLP JSON"
 - Produces: `RuntimeSpan`, `RuntimeImportReport`, `NormalizedRuntimeInput`, and `normalizeOtlpDocuments(documents, options)`.
 - `RuntimeSpan` is serializable and stores `startTimeUnixNano`, `endTimeUnixNano`, and `durationNano` as decimal strings.
 
-- [ ] **Step 1: Write failing tests for exact integers, IDs, redaction, and conflicts**
+- [ ] **Step 1: Write failing tests for exact integers, IDs, redaction, conflicts, and every semantic limit**
 
 ```ts
 describe('normalizeOtlpDocuments', () => {
@@ -264,6 +277,16 @@ describe('normalizeOtlpDocuments', () => {
 })
 ```
 
+Add literal, table-driven tests that name each rejected break:
+
+- reject snake-case substitutes for required lower-camel OTLP fields, non-integer or out-of-range enum values, unsafe numeric 64-bit values, empty span names, invalid or all-zero IDs, end-before-start times, and duplicate attribute keys;
+- preserve every tagged `AnyValue` variant and accept safe integer JSON numbers only after canonical decimal conversion;
+- redact the exact design-key set in resource, scope, span, event, and link attributes, while preserving the key and counting every redaction;
+- prove success exactly at and rejection at one above `maxTraces`, `maxSpans`, `maxSpansPerTrace`, `maxResourceScopeGroups`, `maxAttributes`, `maxEventsPerSpan`, `maxLinksPerSpan`, `maxAttributeDepth`, and `maxValueBytes`;
+- keep Task 1 tests as the at-limit and over-limit proof for `maxInputBytes` and `maxJsonLineBytes`.
+
+Use hand-derived expected counts. Do not generate expected values with the normalizer under test.
+
 - [ ] **Step 2: Run the focused test and confirm the missing-normalizer failure**
 
 Run: `pnpm test -- packages/core/src/runtime/normalize.test.ts`
@@ -286,7 +309,7 @@ function decodeAttributes(value: unknown, owner: string, state: NormalizeState):
 function decodeAnyValue(value: unknown, depth: number, state: NormalizeState): RuntimeValue
 ```
 
-Walk `resourceSpans -> scopeSpans -> spans`. Copy resource and scope schema data. Decode attributes, events, links, status, flags, trace state, kind, and dropped counts. At each OTLP message, compare keys with an explicit allowed-key set; ignore unknown fields, aggregate their structural paths, cap diagnostics, and never copy their values. Use `BigInt(end) - BigInt(start)` for duration. Sort every attribute list by key and all spans by trace ID, start, end, and span ID. Coalesce identical normalized duplicates, count them, and reject conflicting duplicates. Apply the full redaction-key set before returning any model object.
+Walk `resourceSpans -> scopeSpans -> spans`. Copy resource and scope schema data. Decode attributes, events, links, status, flags, trace state, kind, and dropped counts. Track sampling flags and exact OTLP dropped counts in serializable fields used by later warning UI. At each OTLP message, compare keys with an explicit allowed-key set; ignore unknown fields, aggregate their structural paths, and never copy their values. Keep at most 256 distinct structural diagnostic paths while retaining an exact total unknown-field count. Use `BigInt(end) - BigInt(start)` for duration. Sort every attribute list by key and all spans by trace ID, start, end, and span ID. Coalesce identical normalized duplicates, count them, and reject conflicting duplicates. Apply the full redaction-key set before returning any model object. Task 2 validates individual records and duplicates; Task 3 owns parent-graph cycle handling.
 
 - [ ] **Step 4: Run normalizer, parser, and typecheck gates**
 
@@ -312,6 +335,7 @@ git commit -m "feat(core): normalize OTLP trace evidence"
 **Files:**
 
 - Modify: `packages/core/src/runtime/types.ts`
+- Modify: `packages/core/src/runtime/fixtures.ts`
 - Create: `packages/core/src/runtime/derive.ts`
 - Create: `packages/core/src/runtime/derive.test.ts`
 - Create: `packages/core/src/runtime/index.ts`
@@ -347,6 +371,13 @@ describe('deriveRuntimeTraces', () => {
     expect(trace.errorPaths[0]).toEqual(['0000000000000001', '0000000000000003'])
   })
 
+  it('keeps orphan and cycle groups visible without inventing a hot-path root', () => {
+    const trace = importOtlpTraceJson(JSON.stringify(otlpDocumentWithoutTrueRoot())).traces[0]!
+    expect(trace.rootSpanIds).toEqual([])
+    expect(trace.orphanSpanIds.length + trace.cycleBreakSpanIds.length).toBeGreaterThan(0)
+    expect(trace.hotPathSpanIds).toEqual([])
+  })
+
   it('normalizes equivalent JSON and JSON Lines evidence identically', async () => {
     const [jsonText, jsonlText] = await Promise.all([
       readFile('fixtures/runtime/minimal-otlp.json', 'utf8'),
@@ -379,7 +410,7 @@ export function importOtlpTraceJson(
 }
 ```
 
-Group spans by trace ID. Detect each one-parent cycle. Remove the parent edge from the lexicographically greatest span ID in that cycle and mark it. Keep missing-parent spans in `orphanSpanIds`. Build hot paths from root, cycle-broken, and orphan starts; compare summed durations with `BigInt`. Build one ancestry path for each `status.code === 2` span. Apply the exact sort and tie-break rules from the spec.
+Group spans by trace ID. Detect each one-parent cycle. Remove the parent edge from the lexicographically greatest span ID in that cycle and mark it. Keep missing-parent spans in `orphanSpanIds`. Build the hot path only from true OTLP roots that have no recorded parent; compare summed durations with `BigInt`, and return an empty hot path when there is no true root. Keep orphan and cycle-broken spans visible in their explicit call-tree groups, but do not relabel them as roots for hot-path evidence. Build one ancestry path for each `status.code === 2` span. Apply the exact sort and tie-break rules from the spec. Add the Task 3 relation and tie fixtures to `packages/core/src/runtime/fixtures.ts`.
 
 - [ ] **Step 4: Prove permutation stability and run all runtime-core tests**
 
@@ -497,6 +528,7 @@ git commit -m "feat(core): correlate trace spans to exact sources"
 
 - Consumes: `RuntimeTraceBundle`, selected trace ID, `RuntimeFilters`, and a canvas.
 - Produces: `buildRuntimeView(bundle, traceId, filters): RuntimeViewModel`, `layoutTimeline(view, viewport): TimelineLayout`, and `TimelineRenderer` methods `resize`, `setView`, `panBy`, `zoomBy`, `resetView`, `spanAt`, and `dispose`.
+- Boundary: this task projects, filters, formats, and lays out fields already derived by core. It must consume `rootSpanIds`, `orphanSpanIds`, `cycleBreakSpanIds`, `hotPathSpanIds`, and `errorPaths` without recomputing or changing them.
 
 - [ ] **Step 1: Write failing filter and exact-geometry tests**
 
@@ -584,14 +616,14 @@ git commit -m "feat(atlas-ui): add runtime timeline mechanics"
 
 **Interfaces:**
 
-- Consumes: `atlas`, `runtime`, `onShowStatic`, `onOpenSource(nodeId)`, and optional footer actions.
+- Consumes: `atlas`, `runtime`, `onShowStatic`, `onOpenSource(nodeId)`, `onClearRuntime`, and optional footer actions.
 - Produces: synchronized trace, span, filter, timeline, tree, hot-path, and error-path UI state.
 
 - [ ] **Step 1: Write failing component contract tests**
 
 ```ts
 it('renders the truth label and complete textual timeline', () => {
-  const view = renderRuntimeLens({ atlas, runtime: bundle, onShowStatic: vi.fn(), onOpenSource: vi.fn() })
+  const view = renderRuntimeLens({ atlas, runtime: bundle, onShowStatic: vi.fn(), onOpenSource: vi.fn(), onClearRuntime: vi.fn() })
   const text = collectText(view)
   expect(text).toContain('Observed in imported trace data; this view may be incomplete.')
   expect(text).toContain('api / GET /users / +0 ns / 2,000 ns / error')
@@ -605,6 +637,15 @@ it('opens only the exact matched source node', () => {
   expect(open).toHaveBeenCalledWith('file:src/api.ts')
 })
 ```
+
+Add explicit component tests that prove:
+
+- the summary renders sampling, OTLP dropped fields, unknown fields, exact duplicates, deprecated attributes, orphans, cycle breaks, redactions, and unmatched-source warnings whenever their counts are non-zero;
+- an empty bundle, a trace with no recorded errors, and a trace with no true root or hot path render safe empty states without hiding orphan or cycle-broken groups;
+- every text-timeline row includes service, span name, relative start, duration, status, recorded parent or root state, and exact matched/unmatched source state;
+- selecting a row, call-tree item, hot-path item, or error-path item synchronizes the same span in details and timeline state;
+- status changes have a `role="status"` or `aria-live="polite"` DOM node;
+- the clear action calls `onClearRuntime`, and all shortcut actions also exist as labeled native buttons.
 
 - [ ] **Step 2: Run focused component tests and confirm missing components**
 
@@ -636,7 +677,7 @@ Use `useMemo` for `buildRuntimeView`, `useState` for trace/span/filter/tab state
 
 Define `renderRuntimeLens` with the same local hook harness pattern as `AtlasFocus.test.ts`. Define local `collectText` and `findButton` helpers that recurse through React element `props.children`, as the current panel tests do. Do not add React Testing Library.
 
-Wire pointer drag to `panBy`, wheel input to `zoomBy`, pointer movement to `spanAt`, click to selection, and the reset button to `resetView`. Add native buttons for reset, previous/next trace, hot path, error paths, tabs, and source handoff. Add optional keyboard shortcuts `ArrowUp`, `ArrowDown`, `[`, `]`, `h`, `e`, and `0`; keep every action available as a labeled button.
+Wire pointer drag to `panBy`, wheel input to `zoomBy`, pointer movement to `spanAt`, click to selection, and the reset button to `resetView`. Add native buttons for reset, previous/next trace, hot path, error paths, tabs, clear runtime data, and source handoff. Add optional keyboard shortcuts `ArrowUp`, `ArrowDown`, `[`, `]`, `h`, `e`, and `0`; keep every action available as a labeled button. Announce selection and import-completeness state through polite live text. Do not animate when the user requests reduced motion.
 
 - [ ] **Step 4: Run runtime component tests and typecheck**
 
@@ -671,7 +712,7 @@ git commit -m "feat(atlas-ui): build accessible runtime lens"
 
 **Interfaces:**
 
-- Extends `AtlasProps` with `runtime?: RuntimeTraceBundle`, `initialMode?: 'static' | 'runtime'`, and `onClearRuntime?: () => void`.
+- Extends `AtlasProps` as a discriminated static/runtime union. A runtime bundle requires `onClearRuntime: () => void`; static callers remain valid without it. `initialMode` can be `runtime` only in the runtime member.
 - Static mode retains all current props and state.
 - Exact source handoff sets static mode, selects the file node, and calls `AtlasRenderer.focusNode(nodeId)` after the static canvas mounts.
 
@@ -686,17 +727,28 @@ it('keeps static behavior unchanged when runtime is absent', () => {
 })
 
 it('switches from a matched runtime span to the exact static node', () => {
-  renderAtlas({ atlas, runtime: bundle, initialMode: 'runtime' })
+  renderAtlas({ atlas, runtime: bundle, initialMode: 'runtime', onClearRuntime: vi.fn() })
   harness.runtimeLensProps!.onOpenSource('file:src/api.ts')
-  renderAtlas({ atlas, runtime: bundle, initialMode: 'runtime' })
+  renderAtlas({ atlas, runtime: bundle, initialMode: 'runtime', onClearRuntime: vi.fn() })
   expect(harness.renderers.at(-1)!.focusNode).toHaveBeenCalledWith('file:src/api.ts')
+  expect(harness.canvasProps?.['aria-label']).toContain('Interactive codebase map')
+})
+
+it('returns to static mode when runtime data is cleared', () => {
+  const clear = vi.fn()
+  renderAtlas({ atlas, runtime: bundle, initialMode: 'runtime', onClearRuntime: clear })
+  harness.runtimeLensProps!.onClearRuntime()
+  expect(clear).toHaveBeenCalledOnce()
+  renderAtlas({ atlas })
+  renderAtlas({ atlas })
+  expect(harness.runtimeLensProps).toBeNull()
   expect(harness.canvasProps?.['aria-label']).toContain('Interactive codebase map')
 })
 ```
 
 Build `AtlasRuntime.test.tsx` by extending the existing hook harness in `AtlasFocus.test.ts`. Mock `RuntimeLens` and `Header` to capture their props. Do not add a DOM test package.
 
-In the CSS contract test, read `theme.css` and assert that the runtime root has the 860px stack rule and that runtime buttons join the existing 480px `min-height: 44px` rule.
+In the CSS contract test, read `theme.css` and assert that the runtime root has the 860px stack rule, runtime buttons join the existing 480px `min-height: 44px` rule, the runtime root cannot cause document-level horizontal overflow, and `prefers-reduced-motion: reduce` disables runtime transitions or animation.
 
 - [ ] **Step 2: Run focused Atlas tests and confirm missing runtime props**
 
@@ -707,17 +759,19 @@ Expected: FAIL on missing runtime-mode support.
 - [ ] **Step 3: Add mode state without changing the static evidence path**
 
 ```ts
-export interface AtlasProps {
+export interface AtlasBaseProps {
   atlas: AtlasData
-  runtime?: RuntimeTraceBundle
-  initialMode?: 'static' | 'runtime'
-  onClearRuntime?: () => void
   caption?: string
   footerExtra?: React.ReactNode
 }
+
+export type AtlasProps = AtlasBaseProps & (
+  | { runtime?: undefined; initialMode?: 'static'; onClearRuntime?: undefined }
+  | { runtime: RuntimeTraceBundle; initialMode?: 'static' | 'runtime'; onClearRuntime: () => void }
+)
 ```
 
-Add `mode` to the static renderer effect dependencies so switching to Runtime Lens disposes the detached static renderer and switching back creates a fresh renderer. Keep current static selection state in React. When a runtime source handoff occurs, store the exact node ID, switch to static, then select and focus it in an effect after renderer creation.
+Add `mode` to the static renderer effect dependencies so switching to Runtime Lens disposes the detached static renderer and switching back creates a fresh renderer. Keep current static selection state in React. Clamp mode to `static` when `runtime` becomes absent. Pass the required runtime-member `onClearRuntime` through the Runtime Lens clear control. When a runtime source handoff occurs, store the exact node ID, switch to static, then select and focus it in an effect after renderer creation.
 
 Add `.cv-runtime-root` with the same palette tokens and a four-region desktop grid. At 860px, stack rail, summary/timeline, inspector, and footer. At 480px, keep all runtime buttons and inputs at least 44px high and prevent document-level horizontal overflow.
 
@@ -752,6 +806,7 @@ git commit -m "feat(atlas-ui): integrate runtime lens mode"
 - Create: `apps/web/src/runtime/ingest.test.ts`
 - Create: `apps/web/src/runtime/RuntimeImportDialog.tsx`
 - Modify: `apps/web/src/App.tsx`
+- Create: `apps/web/src/App.test.tsx`
 - Modify: `apps/web/src/drop.css`
 
 **Interfaces:**
@@ -792,9 +847,13 @@ it('rejects malformed UTF-8 before JSON parsing', async () => {
 })
 ```
 
+Parameterize the successful ingest test over the public `minimal-otlp.json` and `minimal-otlp.jsonl` fixtures. Before each import, install throwing or recording test doubles for `fetch`, `XMLHttpRequest`, `WebSocket`, `navigator.sendBeacon`, `localStorage`, `sessionStorage`, and `Worker`; assert that no double was used. These are boundary tests for this import path, not framework tests.
+
+In `App.test.tsx`, use the repository's local React hook-harness pattern and mock only the file picker and pure importer boundary. First accept bundle A, then reject bundle B. Re-render and assert that Atlas still receives the exact bundle A object, the safe error is visible, and no partial bundle B is exposed. Also assert that `Clear runtime data` removes the bundle and returns the Atlas to static mode.
+
 - [ ] **Step 2: Run the focused web test and confirm the missing ingest module**
 
-Run: `pnpm test -- apps/web/src/runtime/ingest.test.ts`
+Run: `pnpm test -- apps/web/src/runtime/ingest.test.ts apps/web/src/App.test.tsx`
 
 Expected: FAIL because the runtime web modules do not exist.
 
@@ -821,11 +880,11 @@ export async function ingestRuntimeFile(
 }
 ```
 
-In `App`, set `phase` to working, await the complete import, then replace runtime state once. On error, keep the old bundle and show the safe error. The dialog uses a `.json,.jsonl,application/json` file input, a labeled source-root text field, `Import`, and `Cancel`. Do not use URL input, drag-folder trace import, storage, or a worker script.
+In `App`, set `phase` to working, await the complete import, then replace runtime state once. On error, keep the old bundle and show the safe error. The dialog uses a `.json,.jsonl,application/json` file input, a labeled source-root text field, `Import`, and `Cancel`. Do not use URL input, drag-folder trace import, `fetch`, XHR, WebSocket, beacon, storage, or a worker script on the runtime-import path.
 
 - [ ] **Step 4: Run web, typecheck, and production build gates**
 
-Run: `pnpm test -- apps/web/src/runtime/ingest.test.ts`
+Run: `pnpm test -- apps/web/src/runtime/ingest.test.ts apps/web/src/App.test.tsx`
 
 Expected: PASS.
 
@@ -840,7 +899,7 @@ Expected: PASS.
 - [ ] **Step 5: Commit browser-local import**
 
 ```bash
-git add apps/web/src/runtime apps/web/src/App.tsx apps/web/src/drop.css
+git add apps/web/src/runtime apps/web/src/App.tsx apps/web/src/App.test.tsx apps/web/src/drop.css
 git commit -m "feat(web): import local OTLP traces"
 ```
 
@@ -853,7 +912,9 @@ git commit -m "feat(web): import local OTLP traces"
 - Modify: `packages/atlas-ui/src/standalone-html.ts`
 - Modify: `packages/atlas-ui/src/standalone.tsx`
 - Create: `packages/atlas-ui/src/standalone-html.test.ts`
+- Create: `packages/atlas-ui/src/standalone.test.tsx`
 - Modify: `apps/web/src/App.tsx`
+- Modify: `apps/web/src/App.test.tsx`
 - Modify: `apps/web/src/export.ts`
 - Modify: `packages/cli/src/index.ts`
 - Modify: `packages/cli/src/args.test.ts`
@@ -889,9 +950,11 @@ it('parses trace flags and rejects trace plus JSON output', () => {
 })
 ```
 
+Add CLI tests that generate HTML once from `fixtures/runtime/minimal-otlp.json` and once from `fixtures/runtime/minimal-otlp.jsonl`, assert equivalent non-zero trace and span counts, and assert both files contain a sanitized runtime payload. Add a report test that uses `--trace` with `--report` and asserts the Markdown says runtime trace data is not included. Add an App harness assertion that the export action says `includes sanitized telemetry` when a runtime bundle exists and keeps the current static wording when it does not.
+
 - [ ] **Step 2: Run focused export and CLI tests and confirm failures**
 
-Run: `pnpm test -- packages/atlas-ui/src/standalone-html.test.ts packages/cli/src/args.test.ts`
+Run: `pnpm test -- packages/atlas-ui/src/standalone-html.test.ts packages/atlas-ui/src/standalone.test.tsx packages/cli/src/args.test.ts apps/web/src/App.test.tsx`
 
 Expected: FAIL on missing runtime export and CLI flags.
 
@@ -906,9 +969,9 @@ export function renderStandaloneHtml(
 ): string
 ```
 
-Use the existing `embedJson` for both globals. Add the exact CSP from the design. In `standalone.tsx`, read `window.__CODEVILLE_RUNTIME__` and pass it to `<Atlas runtime={runtime} initialMode={runtime ? 'runtime' : 'static'} />`. Extend `exportAtlas(atlas, runtime?)` and pass the accepted App runtime bundle into it. Keep static export behavior when runtime is absent.
+Use the existing `embedJson` for both globals. Add the exact CSP from the design. In `standalone.tsx`, initialize local state from `window.__CODEVILLE_RUNTIME__`. When state contains a bundle, pass it to `<Atlas runtime={runtime} initialMode="runtime" onClearRuntime={clearRuntime} />`; `clearRuntime` sets both local state and `window.__CODEVILLE_RUNTIME__` to `undefined` so the standalone owner releases the normalized bundle and returns to Static Atlas. Render the static Atlas member when state is absent. Add a standalone test for this clear path. Extend `exportAtlas(atlas, runtime?)` and pass the accepted App runtime bundle into it. When runtime is present, label the action `Export HTML (includes sanitized telemetry)`; keep static export behavior and wording when runtime is absent.
 
-In the CLI, resolve `--trace` and `--trace-source-root` against `process.cwd()`. Read the trace as bytes only after repository analysis succeeds, then decode it with `new TextDecoder('utf-8', { fatal: true })`. Convert a decode failure to the same safe UTF-8 syntax error as the browser. Import and correlate it, then call `renderStandaloneHtml(atlas, js, css, runtime)`. Log exact trace and span counts. Do not include runtime data in Atlas JSON or Markdown output.
+In the CLI, resolve `--trace` and `--trace-source-root` against `process.cwd()`. After repository analysis succeeds, inspect the trace file size and reject it before reading when it exceeds `maxInputBytes`; then read bytes and decode them with `new TextDecoder('utf-8', { fatal: true })`. Convert a decode failure to the same safe UTF-8 syntax error as the browser. Import and correlate it, then call `renderStandaloneHtml(atlas, js, css, runtime)`. Log exact trace and span counts. Do not include runtime data in Atlas JSON or Markdown output. When `--trace` and `--report` are both used for an HTML generation, append the exact statement `Runtime trace data is not included in this static-source Markdown report.` to the Markdown report.
 
 - [ ] **Step 4: Run export, CLI, build, and file-content smoke gates**
 
@@ -916,22 +979,23 @@ Run: `pnpm -F @codeville/atlas-ui build`
 
 Expected: PASS.
 
-Run: `pnpm test -- packages/atlas-ui/src/standalone-html.test.ts packages/cli/src/args.test.ts`
+Run: `pnpm test -- packages/atlas-ui/src/standalone-html.test.ts packages/atlas-ui/src/standalone.test.tsx packages/cli/src/args.test.ts apps/web/src/App.test.tsx`
 
 Expected: PASS.
 
-Run a temp-fixture CLI command from the repository root:
+Run temp-fixture CLI commands from the repository root for both accepted formats:
 
 ```bash
 pnpm atlas . --trace fixtures/runtime/minimal-otlp.json --trace-source-root "$PWD" -o /tmp/codeville-runtime-atlas.html
+pnpm atlas . --trace fixtures/runtime/minimal-otlp.jsonl --trace-source-root "$PWD" -o /tmp/codeville-runtime-atlas-jsonl.html
 ```
 
-Expected: exit 0, log non-zero trace/span counts, and write one HTML file that contains `__CODEVILLE_RUNTIME__` and no external script or stylesheet URL.
+Expected: both commands exit 0, log the same non-zero trace/span counts, and write HTML files that contain `__CODEVILLE_RUNTIME__` and no external script or stylesheet URL.
 
 - [ ] **Step 5: Commit offline and CLI integration**
 
 ```bash
-git add packages/atlas-ui/src/standalone-html.ts packages/atlas-ui/src/standalone.tsx packages/atlas-ui/src/standalone-html.test.ts apps/web/src/App.tsx apps/web/src/export.ts packages/cli/src/index.ts packages/cli/src/args.test.ts
+git add packages/atlas-ui/src/standalone-html.ts packages/atlas-ui/src/standalone.tsx packages/atlas-ui/src/standalone-html.test.ts packages/atlas-ui/src/standalone.test.tsx apps/web/src/App.tsx apps/web/src/App.test.tsx apps/web/src/export.ts packages/cli/src/index.ts packages/cli/src/args.test.ts
 git commit -m "feat(cli): export runtime lens offline"
 ```
 
@@ -971,7 +1035,7 @@ pnpm atlas . \
   -o codeville-runtime.html
 ```
 
-State directly that runtime data is imported observation, not Codeville capture, field qualification, or a complete execution proof.
+State directly that runtime data is imported observation, not Codeville capture, field qualification, or a complete execution proof. Document both `.json` and `.jsonl` inputs, the sanitized-telemetry export label, and the fact that Markdown reports exclude runtime trace data.
 
 - [ ] **Step 2: Run the fixture equivalence test first**
 
@@ -1003,7 +1067,7 @@ pnpm langs
 pnpm realrepo .
 ```
 
-Then generate `/tmp/codeville-runtime-atlas.html`, open it through `file://`, and verify:
+Then generate `/tmp/codeville-runtime-atlas.html` from the JSON fixture and `/tmp/codeville-runtime-atlas-jsonl.html` from the JSONL fixture. Record the exact, equal trace/span counts from both CLI runs. Import both public fixtures through the browser picker and record that each produces the same trace/span counts without network or storage calls. Open both HTML files through `file://` and verify:
 
 - Runtime Lens opens with the fixture trace.
 - Timeline, call tree, hot path, error paths, and span details show the same selected trace.
@@ -1012,6 +1076,7 @@ Then generate `/tmp/codeville-runtime-atlas.html`, open it through `file://`, an
 - No network request occurs.
 - A 390px viewport has no horizontal overflow.
 - The hostile script string is text only.
+- The generated Markdown report states that runtime trace data is excluded.
 
 Write all results to `docs/superpowers/plans/2026-08-31-runtime-lens-verification.md`. Mark unavailable browser automation as `NOT_RUN`; do not convert it to a pass.
 

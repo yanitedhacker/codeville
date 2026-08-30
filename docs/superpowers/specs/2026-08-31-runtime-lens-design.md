@@ -201,7 +201,7 @@ React text nodes and canvas text are the only display sinks. Do not use `innerHT
 
 ## Derived runtime views
 
-Pure functions in `packages/core/src/runtime/derive.ts` build all views.
+Pure functions in `packages/core/src/runtime/derive.ts` build the evidence-bearing trace order, parent groups, hot path, and error paths. The UI can build selection, filter, and canvas-geometry projections from those derived fields, but it must not recompute or change the evidence-bearing paths.
 
 ### Timeline
 
@@ -302,8 +302,8 @@ The export action says that it includes sanitized telemetry. The bundle report a
 packages/core/src/runtime/
   types.ts          serializable runtime contract and limits
   otlp-json.ts      JSON/JSONL framing and OTLP field decoding
-  normalize.ts      validation, redaction, duplicate and cycle handling
-  derive.ts         timeline, tree, hot path, and error paths
+  normalize.ts      validation, redaction, and duplicate handling
+  derive.ts         cycle handling, timeline order, tree, hot path, and error paths
   correlate.ts      explicit source-root path matching
   index.ts          importOtlpTraceJson public API
 
