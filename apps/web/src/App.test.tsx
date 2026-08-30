@@ -134,10 +134,18 @@ describe('App runtime import transaction', () => {
 
     boundaries.ingestRuntimeFile.mockResolvedValueOnce(runtimeA)
     openImportDialog()
-    const accepted = harness.state.dialogProps!.onImport(file('a.json'), '/work/app')
+    const acceptedAtlas = harness.state.atlasProps!.atlas
+    const acceptedFile = file('a.json')
+    const accepted = harness.state.dialogProps!.onImport(acceptedFile, '/work/app')
     await accepted
     renderApp()
 
+    expect(boundaries.ingestRuntimeFile).toHaveBeenNthCalledWith(
+      1,
+      acceptedFile,
+      acceptedAtlas,
+      { sourceRoot: '/work/app' },
+    )
     expect(harness.state.atlasProps).toEqual(expect.objectContaining({
       runtime: runtimeA,
       initialMode: 'runtime',
