@@ -90,8 +90,7 @@ describe('parseOtlpDocuments', () => {
       },
     })).toHaveLength(2)
 
-    let documents: unknown
-    try {
+    expect(() => {
       parseOtlpDocuments(`${line}\n${line} `, {
         limits: {
           ...DEFAULT_RUNTIME_IMPORT_LIMITS,
@@ -99,13 +98,10 @@ describe('parseOtlpDocuments', () => {
           maxJsonLineBytes: exactLimit,
         },
       })
-    } catch (error) {
-      expect(error).toMatchObject({
+    }).toThrow(expect.objectContaining({
         code: 'limit',
         limit: 'maxJsonLineBytes',
         actual: exactLimit + 1,
-      })
-    }
-    expect(documents).toBeUndefined()
+      }))
   })
 })
