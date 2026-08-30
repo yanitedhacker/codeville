@@ -9,6 +9,7 @@ coverage/
 # Local-only agent / scratch dirs. Do not publish briefs.
 .claude/
 .local/
+.worktrees/
 
 # Secrets. This repo has no required env for the default path.
 .env
