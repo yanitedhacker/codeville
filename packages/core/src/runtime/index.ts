@@ -13,4 +13,5 @@ export function importOtlpTraceJson(
 }
 
 export { deriveRuntimeTraces } from './derive.js'
+export { correlateRuntimeSources } from './correlate.js'
 export * from './types.js'

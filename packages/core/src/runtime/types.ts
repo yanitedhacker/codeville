@@ -99,10 +99,20 @@ export interface RuntimeSpan {
   scope: RuntimeScope
 }
 
+export interface RuntimeSourceMatch {
+  nodeId: string
+  path: string
+  recordedPath: string
+  functionName?: string
+  lineNumber?: string
+  kind: 'exact-file'
+}
+
 export type RuntimeSpanRelation = 'root' | 'child' | 'orphan' | 'cycle-broken'
 
 export interface DerivedRuntimeSpan extends RuntimeSpan {
   relation: RuntimeSpanRelation
+  source?: RuntimeSourceMatch
 }
 
 export interface RuntimeUnknownFieldDiagnostic {
@@ -125,6 +135,10 @@ export interface RuntimeImportReport {
   droppedLinksCount: string
   unknownFieldCount: number
   unknownFields: RuntimeUnknownFieldDiagnostic[]
+  /** Set only by exact source correlation. */
+  unmatchedSourceSpans?: number
+  /** Set only by exact source correlation. Contains no recorded attribute values. */
+  compatibilityWarnings?: RuntimeCompatibilityWarning[]
 }
 
 export interface NormalizedRuntimeInput {
@@ -157,6 +171,15 @@ export interface RuntimeNormalizeOptions {
 }
 
 export type RuntimeImportOptions = RuntimeNormalizeOptions
+
+export interface RuntimeSourceOptions {
+  readonly sourceRoot?: string
+}
+
+export interface RuntimeCompatibilityWarning {
+  code: 'deprecated-runtime-source-attribute'
+  attribute: 'code.filepath' | 'code.function' | 'code.lineno'
+}
 
 export class RuntimeImportError extends Error {
   constructor(
