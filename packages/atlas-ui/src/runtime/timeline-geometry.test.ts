@@ -65,10 +65,44 @@ describe('layoutTimeline', () => {
       traceStart: '999999999999999999999999999999', traceDuration: '0',
       spans: [{ startOffset: '0', duration: '0', service: 'api' }],
     })
-    const layout = layoutTimeline(view, { width: 80, height: 1, zoom: 999, offsetX: -999999 })
+    const layout = layoutTimeline(view, { width: 80, height: 40, zoom: 999, offsetX: 0 })
 
-    expect(layout.bars[0]).toMatchObject({ x: 79, y: 0, width: 1, height: 1 })
+    expect(layout.bars[0]).toMatchObject({ x: 79, y: 30, width: 1, height: 10 })
     expect(layout.bars.every((bar) => Number.isFinite(bar.x) && Number.isFinite(bar.width))).toBe(true)
+  })
+
+  it('omits point bars outside the plot and clips intersecting span intervals', () => {
+    const view = viewWithEpoch({
+      traceStart: '0', traceDuration: '100',
+      spans: [
+        { spanId: 'right-point', startOffset: '100', duration: '0', service: 'api' },
+        { spanId: 'left-point', startOffset: '0', duration: '0', service: 'api' },
+        { spanId: 'intersects', startOffset: '90', duration: '20', service: 'api' },
+      ],
+    })
+
+    expect(layoutTimeline(view, { width: 800, height: 100, zoom: 1, offsetX: 0 }).bars).toEqual([
+      expect.objectContaining({ spanId: 'left-point', x: 160, width: 4 }),
+      expect.objectContaining({ spanId: 'intersects', x: 736, width: 64 }),
+    ])
+    expect(layoutTimeline(view, { width: 800, height: 100, zoom: 1, offsetX: -1000 }).bars).toEqual([])
+  })
+
+  it('omits vertical lanes outside the viewport without duplicate bottom hit targets', () => {
+    const view = viewWithEpoch({
+      traceStart: '0', traceDuration: '100',
+      spans: [
+        { spanId: 'api', startOffset: '0', duration: '10', service: 'api' },
+        { spanId: 'worker', startOffset: '0', duration: '10', service: 'worker' },
+        { spanId: 'zeta', startOffset: '0', duration: '10', service: 'zeta' },
+      ],
+    })
+    const layout = layoutTimeline(view, { width: 800, height: 40, zoom: 1, offsetX: 0 })
+
+    expect(layout.lanes.map((lane) => lane.serviceName)).toEqual(['api'])
+    expect(layout.bars).toEqual([expect.objectContaining({ spanId: 'api', y: 30, height: 10 })])
+    expect(spanAt(layout, 200, 39)?.spanId).toBe('api')
+    expect(spanAt(layout, 200, 70)).toBeNull()
   })
 
   it('returns the topmost last-evidence bar during hit testing', () => {

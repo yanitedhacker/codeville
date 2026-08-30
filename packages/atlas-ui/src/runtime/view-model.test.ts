@@ -59,6 +59,26 @@ function span(
 }
 
 describe('buildRuntimeView', () => {
+  it('scopes colliding span IDs to the selected trace for rows, relations, and bars', async () => {
+    const otherTraceId = '22222222222222222222222222222222'
+    const otherTrace = { ...bundle.traces[0]!, traceId: otherTraceId }
+    const otherSpans = bundle.spans.map((item) => ({
+      ...item,
+      traceId: otherTraceId,
+      name: `other ${item.name}`,
+      relation: item.relation,
+    }))
+    const collided: RuntimeTraceBundle = { ...bundle, traces: [bundle.traces[0]!, otherTrace], spans: [...bundle.spans, ...otherSpans] }
+    const view = buildRuntimeView(collided, TRACE_ID, {
+      service: null, status: 'all', minDurationNano: '0', errorsOnly: false,
+    })
+    const { layoutTimeline } = await import('./timeline-geometry.js')
+
+    expect(view.selectedSpans.map((item) => item.span.name)).toEqual(['root', 'child ok', 'child error', 'unknown'])
+    expect(view.descendantSpanIds('0000000000000001')).toEqual(['0000000000000002', '0000000000000003'])
+    expect(layoutTimeline(view, { width: 800, height: 300, zoom: 1, offsetX: 0 }).bars).toHaveLength(4)
+  })
+
   it('filters visibility without changing evidence order', () => {
     const view = buildRuntimeView(bundle, TRACE_ID, {
       service: 'api', status: 'error', minDurationNano: '1000', errorsOnly: true,

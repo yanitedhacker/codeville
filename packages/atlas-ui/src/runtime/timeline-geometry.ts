@@ -72,18 +72,17 @@ export function layoutTimeline(view: RuntimeViewModel, viewport: TimelineViewpor
 
   const serviceNames = [...new Set(view.selectedSpans.map((display) => display.serviceName))]
     .sort((left, right) => left < right ? -1 : left > right ? 1 : 0)
-  const lanes = serviceNames.map((serviceName, index) => ({
+  const allLanes = serviceNames.map((serviceName, index) => ({
     serviceName,
     index,
     y: TIMELINE_TOP_MARGIN + index * TIMELINE_LANE_HEIGHT,
     height: TIMELINE_LANE_HEIGHT,
   }))
-  const laneByService = new Map(lanes.map((lane) => [lane.serviceName, lane]))
+  const laneByService = new Map(allLanes.map((lane) => [lane.serviceName, lane]))
   const traceStart = BigInt(view.selectedTrace.startTimeUnixNano)
   const traceEnd = BigInt(view.selectedTrace.endTimeUnixNano)
   const traceDuration = traceEnd > traceStart ? traceEnd - traceStart : 0n
   const naturalBarHeight = Math.max(MIN_BAR_HEIGHT, Math.min(20, TIMELINE_LANE_HEIGHT - BAR_TOP_INSET * 2))
-  const laneBarHeight = Math.max(1, Math.min(naturalBarHeight, height || 1))
   const maxBarWidth = Math.max(1, Math.min(MIN_BAR_WIDTH, plotWidth))
   const bars: TimelineBar[] = []
 
@@ -97,25 +96,33 @@ export function layoutTimeline(view: RuntimeViewModel, viewport: TimelineViewpor
     const rawX = plotLeft + startRatio * plotWidth * zoom + offsetX
     const rawWidth = (endRatio - startRatio) * plotWidth * zoom
     const pointLike = rawWidth < maxBarWidth
+    const rawY = lane.y + BAR_TOP_INSET
+    if (rawY >= height || rawY + naturalBarHeight <= 0) continue
+    if (pointLike && (rawX < plotLeft || rawX >= width)) continue
     if (!pointLike && (rawX >= width || rawX + rawWidth <= plotLeft)) continue
-    const requestedWidth = pointLike ? maxBarWidth : rawWidth
-    const unclippedX = pointLike ? clamp(rawX, plotLeft, Math.max(plotLeft, width - requestedWidth)) : rawX
-    const x = clamp(unclippedX, plotLeft, width)
-    const barWidth = pointLike
-      ? clamp(requestedWidth, 1, plotWidth)
-      : Math.max(1, clamp(rawX + requestedWidth, plotLeft, width) - x)
-    const y = clamp(lane.y + BAR_TOP_INSET, 0, Math.max(0, height - laneBarHeight))
+    const x = pointLike ? rawX : Math.max(plotLeft, rawX)
+    const visibleWidth = pointLike
+      ? Math.min(maxBarWidth, width - x)
+      : Math.min(width, rawX + rawWidth) - x
+    const barWidth = Math.max(0, Math.min(plotWidth, visibleWidth))
+    const y = Math.max(0, rawY)
+    const barHeight = Math.max(0, Math.min(height, rawY + naturalBarHeight) - y)
+    if (barWidth <= 0 || barHeight <= 0) continue
     bars.push({
       spanId: display.spanId,
       lane: lane.index,
       x,
       y,
       width: barWidth,
-      height: laneBarHeight,
+      height: barHeight,
       status: statusCode(display.span.status.code),
     })
   }
 
+  const lanes = allLanes.filter((lane) => {
+    const barY = lane.y + BAR_TOP_INSET
+    return barY < height && barY + naturalBarHeight > 0
+  })
   return { bars, lanes, plotLeft, plotWidth, width, height }
 }
 

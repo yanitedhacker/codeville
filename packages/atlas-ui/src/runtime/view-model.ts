@@ -138,11 +138,15 @@ export function buildRuntimeView(bundle: RuntimeTraceBundle, traceId: string, fi
   const selectedTrace = bundle.traces.find((trace) => trace.traceId === traceId)
   if (!selectedTrace) return emptyView('Selected trace is unavailable.', warnings)
 
-  const bySpanId = new Map(bundle.spans.map((span) => [span.spanId, span]))
+  const bySpanId = new Map(
+    bundle.spans
+      .filter((span) => span.traceId === selectedTrace.traceId)
+      .map((span) => [span.spanId, span]),
+  )
   const selectedSpans: RuntimeDisplaySpan[] = []
   for (const spanId of selectedTrace.spanIds) {
     const span = bySpanId.get(spanId)
-    if (!span || span.traceId !== selectedTrace.traceId) continue
+    if (!span) continue
     selectedSpans.push({
       span,
       spanId: span.spanId,

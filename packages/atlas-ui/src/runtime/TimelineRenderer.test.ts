@@ -7,10 +7,10 @@ function view() {
   const traceId = '11111111111111111111111111111111'
   const bundle: RuntimeTraceBundle = {
     version: 1, format: 'otlp-json',
-    traces: [{ traceId, startTimeUnixNano: '0', endTimeUnixNano: '100', spanIds: ['root', 'error'],
-      rootSpanIds: ['root'], orphanSpanIds: [], cycleBreakSpanIds: [], hotPathSpanIds: ['root', 'error'], errorPaths: [['root', 'error']] }],
-    spans: [runtimeSpan(traceId, 'root', 'root', '0', '100', 1), runtimeSpan(traceId, 'error', 'error', '10', '50', 2, 'root')],
-    report: { documents: 1, resourceScopeGroups: 1, traces: 1, inputSpans: 2, spans: 2, duplicateSpans: 0, sampledSpans: 2,
+    traces: [{ traceId, startTimeUnixNano: '0', endTimeUnixNano: '100', spanIds: ['root', 'error', 'tail'],
+      rootSpanIds: ['root'], orphanSpanIds: [], cycleBreakSpanIds: [], hotPathSpanIds: ['root', 'tail'], errorPaths: [['root', 'error'], ['root', 'tail']] }],
+    spans: [runtimeSpan(traceId, 'root', 'root', '0', '100', 1), runtimeSpan(traceId, 'error', 'error', '10', '50', 2, 'root'), runtimeSpan(traceId, 'tail', 'tail', '90', '10', 2, 'root')],
+    report: { documents: 1, resourceScopeGroups: 1, traces: 1, inputSpans: 3, spans: 3, duplicateSpans: 0, sampledSpans: 3,
       unsampledSpans: 0, redactedAttributes: 0, droppedAttributesCount: '0', droppedEventsCount: '0', droppedLinksCount: '0', unknownFieldCount: 0, unknownFields: [] },
   }
   return buildRuntimeView(bundle, traceId, { service: null, status: 'all', minDurationNano: '0', errorsOnly: false })
@@ -33,7 +33,7 @@ class FakeContext {
   lineWidth = 1
   font = ''
   textBaseline: CanvasTextBaseline = 'alphabetic'
-  setTransform(): void { this.calls.push('setTransform') }
+  setTransform(...values: number[]): void { this.calls.push(`setTransform:${values.join(',')}`) }
   clearRect(): void { this.calls.push('clearRect') }
   fillRect(): void { this.calls.push('fillRect') }
   strokeRect(): void { this.calls.push('strokeRect') }
@@ -66,13 +66,41 @@ describe('TimelineRenderer', () => {
     renderer.resize(800, 240)
     renderer.setView(view())
 
-    renderer.panBy(1_000_000)
-    expect(renderer.spanAt(200, 34)).toBeNull()
-    renderer.zoomBy(1_000_000)
+    renderer.zoomBy(16)
+    renderer.panBy(-1_000_000)
+    expect(renderer.spanAt(400, 34)).toBe('tail')
     renderer.resetView()
 
     expect(renderer.spanAt(300, 34)).toBe('error')
-    expect(context.calls).not.toContain('requestAnimationFrame')
+    expect(context.calls.every((call) => !call.startsWith('requestAnimationFrame'))).toBe(true)
+  })
+
+  it('keeps null and invalid selections unselected', () => {
+    const context = new FakeContext()
+    const renderer = new TimelineRenderer(fakeCanvas(context))
+    renderer.resize(800, 240)
+    renderer.setView(view(), 'error')
+    context.calls.splice(0)
+
+    renderer.setView(view(), null)
+    expect(context.calls).not.toContain('strokeRect')
+    context.calls.splice(0)
+    renderer.setView(view(), 'missing')
+    expect(context.calls).not.toContain('strokeRect')
+  })
+
+  it('uses high-DPI backing pixels while layout and hit tests stay in CSS pixels', () => {
+    const context = new FakeContext()
+    const canvas = fakeCanvas(context)
+    const renderer = new TimelineRenderer(canvas)
+
+    renderer.resize(800, 240, 2)
+    renderer.setView(view(), 'error')
+
+    expect(canvas.width).toBe(1600)
+    expect(canvas.height).toBe(480)
+    expect(context.calls).toContain('setTransform:2,0,0,2,0,0')
+    expect(renderer.spanAt(300, 34)).toBe('error')
   })
 
   it('does not paint after safe disposal', () => {

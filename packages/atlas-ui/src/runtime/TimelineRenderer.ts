@@ -1,9 +1,8 @@
 import { layoutTimeline, spanAt, type TimelineLayout } from './timeline-geometry.js'
 import type { RuntimeViewModel } from './view-model.js'
 
-const MIN_ZOOM = 0.25
+const MIN_ZOOM = 1
 const MAX_ZOOM = 16
-const MAX_PAN_VIEWPORTS = 4
 
 export class TimelineRenderer {
   private readonly canvas: HTMLCanvasElement
@@ -12,6 +11,7 @@ export class TimelineRenderer {
   private selectedSpanId: string | null = null
   private width = 0
   private height = 0
+  private pixelRatio = 1
   private zoom = 1
   private offsetX = 0
   private layout: TimelineLayout | null = null
@@ -24,12 +24,13 @@ export class TimelineRenderer {
     this.context = context
   }
 
-  resize(width: number, height: number): void {
+  resize(width: number, height: number, pixelRatio = defaultPixelRatio()): void {
     if (this.disposed) return
     this.width = Number.isFinite(width) && width > 0 ? width : 0
     this.height = Number.isFinite(height) && height > 0 ? height : 0
-    this.canvas.width = Math.max(1, Math.round(this.width))
-    this.canvas.height = Math.max(1, Math.round(this.height))
+    this.pixelRatio = Number.isFinite(pixelRatio) && pixelRatio > 0 ? pixelRatio : 1
+    this.canvas.width = Math.max(1, Math.round(this.width * this.pixelRatio))
+    this.canvas.height = Math.max(1, Math.round(this.height * this.pixelRatio))
     this.canvas.style.width = `${this.width}px`
     this.canvas.style.height = `${this.height}px`
     this.offsetX = this.boundedOffset(this.offsetX)
@@ -39,9 +40,9 @@ export class TimelineRenderer {
   setView(view: RuntimeViewModel, selectedSpanId: string | null = null): void {
     if (this.disposed) return
     this.view = view
-    this.selectedSpanId = selectedSpanId && view.spansById.has(selectedSpanId)
+    this.selectedSpanId = selectedSpanId !== null && view.spansById.has(selectedSpanId)
       ? selectedSpanId
-      : view.visibleSpanIds[0] ?? null
+      : null
     this.paint()
   }
 
@@ -77,15 +78,17 @@ export class TimelineRenderer {
   }
 
   private boundedOffset(value: number): number {
-    const maximum = Math.max(0, this.width * MAX_PAN_VIEWPORTS)
-    return Math.min(maximum, Math.max(-maximum, value))
+    const plotLeft = Math.min(160, Math.max(0, this.width - 1))
+    const plotWidth = Math.max(1, this.width - plotLeft)
+    const minimum = -plotWidth * (this.zoom - 1)
+    return Math.min(0, Math.max(minimum, value))
   }
 
   private paint(): void {
     if (this.disposed) return
     const context = this.context
-    context.setTransform(1, 0, 0, 1, 0, 0)
-    context.clearRect(0, 0, this.canvas.width, this.canvas.height)
+    context.setTransform(this.pixelRatio, 0, 0, this.pixelRatio, 0, 0)
+    context.clearRect(0, 0, this.width, this.height)
     if (!this.view) {
       this.layout = null
       return
@@ -122,4 +125,8 @@ export class TimelineRenderer {
       }
     }
   }
+}
+
+function defaultPixelRatio(): number {
+  return typeof window === 'undefined' ? 1 : window.devicePixelRatio
 }
