@@ -64,3 +64,86 @@ export function otlpDocument(options?: OtlpSpanFixtureOptions): JsonObject {
     }],
   }
 }
+
+function otlpDocumentWithSpans(spans: JsonObject[]): JsonObject {
+  return {
+    resourceSpans: [{
+      resource: { attributes: [], droppedAttributesCount: 0 },
+      scopeSpans: [{
+        scope: {
+          name: 'fixture scope',
+          version: '1.0.0',
+          attributes: [],
+          droppedAttributesCount: 0,
+        },
+        spans,
+      }],
+    }],
+  }
+}
+
+export function otlpDocumentWithRelations(): JsonObject {
+  return otlpDocumentWithSpans([
+    otlpSpan({ spanId: '0000000000000001', name: 'root', start: '0', end: '10' }),
+    otlpSpan({ spanId: '0000000000000002', parentSpanId: '0000000000000001', name: 'child', start: '10', end: '20' }),
+    otlpSpan({ spanId: '0000000000000004', parentSpanId: '9999999999999999', name: 'orphan', start: '20', end: '30' }),
+    otlpSpan({ spanId: '0000000000000005', parentSpanId: '0000000000000006', name: 'cycle a low', start: '30', end: '40' }),
+    otlpSpan({ spanId: '0000000000000006', parentSpanId: '0000000000000005', name: 'cycle a high', start: '40', end: '50' }),
+    otlpSpan({ spanId: '0000000000000007', parentSpanId: '0000000000000008', name: 'cycle b low', start: '50', end: '60' }),
+    otlpSpan({ spanId: '0000000000000008', parentSpanId: '0000000000000007', name: 'cycle b high', start: '60', end: '70' }),
+  ])
+}
+
+export function otlpDocumentWithTiedPaths(): JsonObject {
+  return otlpDocumentWithSpans([
+    otlpSpan({ spanId: '0000000000000001', name: 'root', start: '0', end: '10' }),
+    otlpSpan({
+      spanId: '0000000000000002',
+      parentSpanId: '0000000000000001',
+      name: 'branch one',
+      start: '20',
+      end: '25',
+      spanExtra: { status: { code: 2 } },
+    }),
+    otlpSpan({
+      spanId: '0000000000000004',
+      parentSpanId: '0000000000000002',
+      name: 'branch one leaf',
+      start: '20',
+      end: '25',
+      spanExtra: { status: { code: 2 } },
+    }),
+    otlpSpan({
+      spanId: '0000000000000003',
+      parentSpanId: '0000000000000001',
+      name: 'branch two error',
+      start: '5',
+      end: '15',
+      spanExtra: { status: { code: 2 } },
+    }),
+    otlpSpan({ spanId: '0000000000000009', name: 'later tied root', start: '30', end: '50' }),
+  ])
+}
+
+export function otlpDocumentWithoutTrueRoot(): JsonObject {
+  return otlpDocumentWithSpans([
+    otlpSpan({ spanId: '0000000000000001', parentSpanId: '9999999999999999', name: 'orphan', start: '0', end: '10' }),
+    otlpSpan({
+      spanId: '0000000000000002',
+      parentSpanId: '0000000000000001',
+      name: 'orphan child error',
+      start: '10',
+      end: '20',
+      spanExtra: { status: { code: 2 } },
+    }),
+    otlpSpan({
+      spanId: '0000000000000003',
+      parentSpanId: '0000000000000004',
+      name: 'cycle child error',
+      start: '20',
+      end: '30',
+      spanExtra: { status: { code: 2 } },
+    }),
+    otlpSpan({ spanId: '0000000000000004', parentSpanId: '0000000000000003', name: 'cycle break', start: '30', end: '40' }),
+  ])
+}

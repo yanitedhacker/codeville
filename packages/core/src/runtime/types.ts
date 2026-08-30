@@ -99,6 +99,12 @@ export interface RuntimeSpan {
   scope: RuntimeScope
 }
 
+export type RuntimeSpanRelation = 'root' | 'child' | 'orphan' | 'cycle-broken'
+
+export interface DerivedRuntimeSpan extends RuntimeSpan {
+  relation: RuntimeSpanRelation
+}
+
 export interface RuntimeUnknownFieldDiagnostic {
   path: string
   count: number
@@ -126,9 +132,31 @@ export interface NormalizedRuntimeInput {
   report: RuntimeImportReport
 }
 
+export interface RuntimeTrace {
+  traceId: string
+  startTimeUnixNano: string
+  endTimeUnixNano: string
+  spanIds: string[]
+  rootSpanIds: string[]
+  orphanSpanIds: string[]
+  cycleBreakSpanIds: string[]
+  hotPathSpanIds: string[]
+  errorPaths: string[][]
+}
+
+export interface RuntimeTraceBundle {
+  version: 1
+  format: 'otlp-json'
+  traces: RuntimeTrace[]
+  spans: DerivedRuntimeSpan[]
+  report: RuntimeImportReport
+}
+
 export interface RuntimeNormalizeOptions {
   readonly limits?: Partial<RuntimeImportLimits>
 }
+
+export type RuntimeImportOptions = RuntimeNormalizeOptions
 
 export class RuntimeImportError extends Error {
   constructor(
