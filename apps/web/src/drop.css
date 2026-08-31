@@ -126,6 +126,11 @@
   text-decoration: underline;
 }
 
+.cv-runtime-app-background {
+  position: absolute;
+  inset: 0;
+}
+
 .cv-runtime-dialog-backdrop {
   position: fixed;
   inset: 0;

@@ -28,6 +28,7 @@ export function App() {
   const [runtimeImportError, setRuntimeImportError] = useState<string | null>(null)
   const folderRef = useRef<HTMLInputElement>(null)
   const zipRef = useRef<HTMLInputElement>(null)
+  const runtimeImportButtonRef = useRef<HTMLButtonElement>(null)
   const runtimeImportAttemptRef = useRef(0)
 
   const run = useCallback(async (label: string, load: () => Promise<Ingested>) => {
@@ -85,6 +86,13 @@ export function App() {
     setRuntimeImportError(null)
   }, [])
 
+  const cancelRuntimeImport = useCallback(() => {
+    runtimeImportAttemptRef.current += 1
+    setRuntimeImportOpen(false)
+    setRuntimeImportBusy(false)
+    setRuntimeImportError(null)
+  }, [])
+
   const newRepository = useCallback(() => {
     runtimeImportAttemptRef.current += 1
     setRuntime(null)
@@ -104,6 +112,7 @@ export function App() {
           {runtime ? 'Export HTML (includes sanitized telemetry)' : 'Export html'}
         </button>
         <button
+          ref={runtimeImportButtonRef}
           className="cv-inline-btn"
           onClick={() => {
             setRuntimeImportError(null)
@@ -119,17 +128,21 @@ export function App() {
 
     return (
       <>
-        {runtime
-          ? <Atlas atlas={atlas} runtime={runtime} initialMode="runtime" onClearRuntime={clearRuntime} footerExtra={footerExtra} />
-          : <Atlas atlas={atlas} footerExtra={footerExtra} />}
+        <div
+          className="cv-runtime-app-background"
+          inert={runtimeImportOpen || undefined}
+          aria-hidden={runtimeImportOpen || undefined}
+        >
+          {runtime
+            ? <Atlas atlas={atlas} runtime={runtime} initialMode="runtime" onClearRuntime={clearRuntime} footerExtra={footerExtra} />
+            : <Atlas atlas={atlas} footerExtra={footerExtra} />}
+        </div>
         {runtimeImportOpen && (
           <RuntimeImportDialog
             busy={runtimeImportBusy}
             error={runtimeImportError}
-            onCancel={() => {
-              setRuntimeImportError(null)
-              setRuntimeImportOpen(false)
-            }}
+            returnFocusRef={runtimeImportButtonRef}
+            onCancel={cancelRuntimeImport}
             onImport={importRuntime}
           />
         )}

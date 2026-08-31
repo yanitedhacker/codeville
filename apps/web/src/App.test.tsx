@@ -71,6 +71,7 @@ vi.mock('react', () => ({
   useState: harness.useState,
   useRef: harness.useRef,
   useCallback: harness.useCallback,
+  useEffect: vi.fn(),
 }))
 
 vi.mock('@codeville/atlas-ui', () => ({
@@ -292,6 +293,19 @@ describe('RuntimeImportDialog', () => {
     expect(controls.find((button) => buttonText(button) === 'Import')?.props.disabled).toBe(true)
     expect(text(value)).toContain('Importing runtime trace…')
     expect(text(value)).toContain('The prior safe error remains visible.')
+  })
+
+  it('marks the atlas background inert and passes the exact Import opener ref', async () => {
+    await openRepository()
+    clickFooter('Import OTLP trace')
+    const opened = renderApp()
+    const background = find(opened, (element) => element.props.className === 'cv-runtime-app-background')
+    const importButton = buttons(harness.state.atlasProps?.footerExtra).find((candidate) => buttonText(candidate) === 'Import OTLP trace')
+
+    expect(background?.props.inert).toBe(true)
+    expect(background?.props['aria-hidden']).toBe(true)
+    expect(importButton?.props.ref).toBeDefined()
+    expect(harness.state.dialogProps?.returnFocusRef).toBe(importButton?.props.ref)
   })
 })
 
