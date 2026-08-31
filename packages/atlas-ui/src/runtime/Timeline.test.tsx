@@ -49,7 +49,11 @@ const harness = vi.hoisted(() => {
   }
 })
 
-vi.mock('react', () => ({ useRef: harness.useRef, useEffect: harness.useEffect }))
+vi.mock('react', () => ({
+  useRef: harness.useRef,
+  useEffect: harness.useEffect,
+  useState: <T,>(initial: T) => [initial, vi.fn()] as const,
+}))
 vi.mock('./TimelineRenderer.js', () => ({
   TimelineRenderer: class FakeTimelineRenderer {
     resize = vi.fn()
@@ -140,6 +144,8 @@ describe('Timeline', () => {
     expect(canvas?.props.tabIndex).toBe(0)
     expect(canvas?.props['aria-label']).toBe(`Observed span timeline for trace ${TRACE_ID}`)
     expect(canvas?.props['aria-describedby']).toBe('cv-runtime-timeline-help')
+    expect(canvas?.props.style).toEqual({ height: '240px' })
+    expect(elements.find((element) => element.type === 'div' && element.props.className === 'cv-runtime-timeline-scroll')).toBeDefined()
     expect(content).toContain('api / GET /users / +0 ns / 2,000 ns / error / recorded root / exact source: src/api.ts')
     expect(content).toContain('db / SQL <users> / +500 ns / 500 ns / ok / recorded parent root / no recorded source')
     expect(content).toContain('api / queue / +2,000 ns / 1,000 ns / unset / recorded parent missing (orphan) / unmatched recorded source')
@@ -191,9 +197,22 @@ describe('Timeline', () => {
     expect(renderer.spanAt).toHaveBeenCalledWith(30, 20)
     expect(onSelectSpan).toHaveBeenCalledWith({ traceId: TRACE_ID, spanId: 'child' })
 
-    const reset = elements.find((element) => element.type === 'button' && element.props.children === 'Reset timeline view')
+    const control = (label: string) => elements.find((element) => element.type === 'button' && element.props.children === label)
+    const earlier = control('Pan earlier')
+    const later = control('Pan later')
+    const zoomIn = control('Zoom in')
+    const zoomOut = control('Zoom out')
+    const reset = control('Reset timeline view')
+    for (const nativeButton of [earlier, later, zoomIn, zoomOut, reset]) expect(nativeButton?.props.type).toBe('button')
+    earlier?.props.onClick()
+    later?.props.onClick()
+    zoomIn?.props.onClick()
+    zoomOut?.props.onClick()
     reset?.props.onClick()
-    expect(reset?.props.type).toBe('button')
+    expect(renderer.panBy).toHaveBeenNthCalledWith(1, 80)
+    expect(renderer.panBy).toHaveBeenNthCalledWith(2, -80)
+    expect(renderer.zoomBy).toHaveBeenNthCalledWith(1, 1.25)
+    expect(renderer.zoomBy).toHaveBeenNthCalledWith(2, 0.8)
     expect(renderer.resetView).toHaveBeenCalledOnce()
 
     const row = elements.find((element) => element.type === 'button' && text(element.props.children).startsWith('db / SQL <users>'))

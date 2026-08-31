@@ -75,6 +75,22 @@ function warningItems(runtime: RuntimeTraceBundle, view: RuntimeViewModel): Reac
   return warnings
 }
 
+function buildValidatedRuntimeView(
+  runtime: RuntimeTraceBundle,
+  traceId: string,
+  filters: RuntimeFilters,
+): { view: RuntimeViewModel; filters: RuntimeFilters } {
+  const candidate = buildRuntimeView(runtime, traceId, filters)
+  if (filters.service === null || candidate.selectedSpans.some((span) => span.serviceName === filters.service)) {
+    return { view: candidate, filters }
+  }
+  const validatedFilters = { ...filters, service: null }
+  return {
+    view: buildRuntimeView(runtime, traceId, validatedFilters),
+    filters: validatedFilters,
+  }
+}
+
 export function RuntimeLens({ atlas, runtime, onShowStatic, onOpenSource, onClearRuntime, footerActions }: RuntimeLensProps) {
   const [traceId, setTraceId] = useState(() => runtime.traces[0]?.traceId ?? '')
   const [selection, setSelection] = useState<RuntimeSpanSelection | null>(null)
@@ -85,13 +101,14 @@ export function RuntimeLens({ atlas, runtime, onShowStatic, onOpenSource, onClea
   const selectedTraceIndex = runtime.traces.findIndex((trace) => trace.traceId === traceId)
   const effectiveTraceIndex = selectedTraceIndex >= 0 ? selectedTraceIndex : runtime.traces.length > 0 ? 0 : -1
   const effectiveTraceId = effectiveTraceIndex >= 0 ? runtime.traces[effectiveTraceIndex]!.traceId : ''
-  const view = useMemo(
-    () => buildRuntimeView(runtime, effectiveTraceId, filters),
+  const projection = useMemo(
+    () => buildValidatedRuntimeView(runtime, effectiveTraceId, filters),
     [runtime, effectiveTraceId, filters],
   )
+  const { view, filters: effectiveFilters } = projection
   const effectiveSelection = selection !== null
     && selection.traceId === effectiveTraceId
-    && view.visibleSpanIds.includes(selection.spanId)
+    && view.visibleSpanIdSet.has(selection.spanId)
     ? selection
     : null
   const selectedSpan = effectiveSelection === null ? null : view.spansById.get(effectiveSelection.spanId)?.span ?? null
@@ -121,6 +138,13 @@ export function RuntimeLens({ atlas, runtime, onShowStatic, onOpenSource, onClea
   }, [traceId, effectiveTraceId])
 
   useEffect(() => {
+    if (filters.service !== effectiveFilters.service) {
+      setFilters(effectiveFilters)
+      setStatusText('The selected service is absent from this trace. The service filter was cleared.')
+    }
+  }, [filters, effectiveFilters])
+
+  useEffect(() => {
     if (selection !== null && effectiveSelection === null) {
       setSelection(null)
       setStatusText('The selected span is not visible under the current filters. No recorded span is selected.')
@@ -135,8 +159,8 @@ export function RuntimeLens({ atlas, runtime, onShowStatic, onOpenSource, onClea
     if (!runtime.traces.some((trace) => trace.traceId === candidate.traceId)) return null
     const candidateView = candidate.traceId === effectiveTraceId
       ? view
-      : buildRuntimeView(runtime, candidate.traceId, filters)
-    return candidateView.visibleSpanIds.includes(candidate.spanId) ? candidateView : null
+      : buildValidatedRuntimeView(runtime, candidate.traceId, effectiveFilters).view
+    return candidateView.visibleSpanIdSet.has(candidate.spanId) ? candidateView : null
   }
 
   const canSelectSpan = (candidate: RuntimeSpanSelection) => selectableView(candidate) !== null
@@ -203,8 +227,8 @@ export function RuntimeLens({ atlas, runtime, onShowStatic, onOpenSource, onClea
                 <label htmlFor="cv-runtime-service-filter">Service</label>
                 <select
                   id="cv-runtime-service-filter"
-                  value={filters.service ?? ''}
-                  onChange={(event) => changeFilters({ ...filters, service: event.currentTarget.value === '' ? null : event.currentTarget.value })}
+                  value={effectiveFilters.service ?? ''}
+                  onChange={(event) => changeFilters({ ...effectiveFilters, service: event.currentTarget.value === '' ? null : event.currentTarget.value })}
                 >
                   <option value="">All services</option>
                   {services.map((service) => <option key={service} value={service}>{service}</option>)}
@@ -213,8 +237,8 @@ export function RuntimeLens({ atlas, runtime, onShowStatic, onOpenSource, onClea
                 <label htmlFor="cv-runtime-status-filter">Status</label>
                 <select
                   id="cv-runtime-status-filter"
-                  value={filters.status}
-                  onChange={(event) => changeFilters({ ...filters, status: event.currentTarget.value as RuntimeFilters['status'] })}
+                  value={effectiveFilters.status}
+                  onChange={(event) => changeFilters({ ...effectiveFilters, status: event.currentTarget.value as RuntimeFilters['status'] })}
                 >
                   <option value="all">All statuses</option>
                   <option value="unset">Unset</option>
@@ -228,16 +252,16 @@ export function RuntimeLens({ atlas, runtime, onShowStatic, onOpenSource, onClea
                   type="number"
                   min="0"
                   step="1"
-                  value={filters.minDurationNano}
-                  onChange={(event) => changeFilters({ ...filters, minDurationNano: event.currentTarget.value })}
+                  value={effectiveFilters.minDurationNano}
+                  onChange={(event) => changeFilters({ ...effectiveFilters, minDurationNano: event.currentTarget.value })}
                 />
 
                 <label htmlFor="cv-runtime-errors-filter">
                   <input
                     id="cv-runtime-errors-filter"
                     type="checkbox"
-                    checked={filters.errorsOnly}
-                    onChange={(event) => changeFilters({ ...filters, errorsOnly: event.currentTarget.checked })}
+                    checked={effectiveFilters.errorsOnly}
+                    onChange={(event) => changeFilters({ ...effectiveFilters, errorsOnly: event.currentTarget.checked })}
                   />
                   Errors only
                 </label>

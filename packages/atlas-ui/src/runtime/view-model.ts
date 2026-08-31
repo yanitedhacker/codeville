@@ -24,11 +24,17 @@ export interface RuntimeDisplaySpan {
   durationLabel: string
 }
 
+export interface RuntimeTreeRow {
+  spanId: string
+  depth: number
+}
+
 export interface RuntimeViewModel {
   selectedTrace: RuntimeTrace | null
   selectedSpanIds: readonly string[]
   selectedSpans: readonly RuntimeDisplaySpan[]
   visibleSpanIds: readonly string[]
+  visibleSpanIdSet: ReadonlySet<string>
   visibleSpans: readonly RuntimeDisplaySpan[]
   spansById: ReadonlyMap<string, RuntimeDisplaySpan>
   rootSpanIds: readonly string[]
@@ -36,6 +42,9 @@ export interface RuntimeViewModel {
   cycleBreakSpanIds: readonly string[]
   hotPathSpanIds: readonly string[]
   errorPaths: readonly (readonly string[])[]
+  callTreeRows: readonly RuntimeTreeRow[]
+  orphanTreeRows: readonly RuntimeTreeRow[]
+  cycleBreakTreeRows: readonly RuntimeTreeRow[]
   warnings: readonly RuntimeCompatibilityWarning[]
   warning: string | null
   ancestorSpanIds(spanId: string): readonly string[]
@@ -45,6 +54,7 @@ export interface RuntimeViewModel {
 const EMPTY_IDS: readonly string[] = []
 const EMPTY_SPANS: readonly RuntimeDisplaySpan[] = []
 const EMPTY_PATHS: readonly (readonly string[])[] = []
+const EMPTY_TREE_ROWS: readonly RuntimeTreeRow[] = []
 const EMPTY_WARNINGS: readonly RuntimeCompatibilityWarning[] = []
 
 function serviceName(span: DerivedRuntimeSpan): string {
@@ -78,6 +88,7 @@ function emptyView(warning: string, warnings: readonly RuntimeCompatibilityWarni
     selectedSpanIds: EMPTY_IDS,
     selectedSpans: EMPTY_SPANS,
     visibleSpanIds: EMPTY_IDS,
+    visibleSpanIdSet: new Set<string>(),
     visibleSpans: EMPTY_SPANS,
     spansById,
     rootSpanIds: EMPTY_IDS,
@@ -85,6 +96,9 @@ function emptyView(warning: string, warnings: readonly RuntimeCompatibilityWarni
     cycleBreakSpanIds: EMPTY_IDS,
     hotPathSpanIds: EMPTY_IDS,
     errorPaths: EMPTY_PATHS,
+    callTreeRows: EMPTY_TREE_ROWS,
+    orphanTreeRows: EMPTY_TREE_ROWS,
+    cycleBreakTreeRows: EMPTY_TREE_ROWS,
     warnings,
     warning,
     ancestorSpanIds: () => EMPTY_IDS,
@@ -92,7 +106,7 @@ function emptyView(warning: string, warnings: readonly RuntimeCompatibilityWarni
   }
 }
 
-function relationAccessors(spansById: ReadonlyMap<string, RuntimeDisplaySpan>): Pick<RuntimeViewModel, 'ancestorSpanIds' | 'descendantSpanIds'> {
+function childIndex(spansById: ReadonlyMap<string, RuntimeDisplaySpan>): ReadonlyMap<string, readonly string[]> {
   const children = new Map<string, string[]>()
   for (const display of spansById.values()) {
     const { span } = display
@@ -101,6 +115,36 @@ function relationAccessors(spansById: ReadonlyMap<string, RuntimeDisplaySpan>): 
     childIds.push(span.spanId)
     children.set(span.parentSpanId, childIds)
   }
+  return children
+}
+
+function flatTreeRows(
+  rootSpanIds: readonly string[],
+  children: ReadonlyMap<string, readonly string[]>,
+): readonly RuntimeTreeRow[] {
+  const rows: RuntimeTreeRow[] = []
+  const visited = new Set<string>()
+  const pending: RuntimeTreeRow[] = []
+  for (let index = rootSpanIds.length - 1; index >= 0; index -= 1) {
+    pending.push({ spanId: rootSpanIds[index]!, depth: 1 })
+  }
+  while (pending.length > 0) {
+    const row = pending.pop()!
+    if (visited.has(row.spanId)) continue
+    visited.add(row.spanId)
+    rows.push(row)
+    const childIds = children.get(row.spanId) ?? EMPTY_IDS
+    for (let index = childIds.length - 1; index >= 0; index -= 1) {
+      pending.push({ spanId: childIds[index]!, depth: row.depth + 1 })
+    }
+  }
+  return rows
+}
+
+function relationAccessors(
+  spansById: ReadonlyMap<string, RuntimeDisplaySpan>,
+  children: ReadonlyMap<string, readonly string[]>,
+): Pick<RuntimeViewModel, 'ancestorSpanIds' | 'descendantSpanIds'> {
 
   return {
     ancestorSpanIds(spanId: string): readonly string[] {
@@ -110,17 +154,18 @@ function relationAccessors(spansById: ReadonlyMap<string, RuntimeDisplaySpan>): 
       while (current?.span.relation === 'child' && current.span.parentSpanId !== undefined) {
         const parentId = current.span.parentSpanId
         if (visited.has(parentId) || !spansById.has(parentId)) break
-        ancestors.unshift(parentId)
+        ancestors.push(parentId)
         visited.add(parentId)
         current = spansById.get(parentId)
       }
+      ancestors.reverse()
       return ancestors
     },
     descendantSpanIds(spanId: string): readonly string[] {
       const descendants: string[] = []
       const pending = [...(children.get(spanId) ?? [])]
-      while (pending.length > 0) {
-        const childId = pending.shift()!
+      for (let index = 0; index < pending.length; index += 1) {
+        const childId = pending[index]!
         descendants.push(childId)
         pending.push(...(children.get(childId) ?? []))
       }
@@ -159,13 +204,16 @@ export function buildRuntimeView(bundle: RuntimeTraceBundle, traceId: string, fi
   const spansById = new Map(selectedSpans.map((display) => [display.spanId, display]))
   const minimum = minimumDuration(filters.minDurationNano)
   const visibleSpans = selectedSpans.filter((display) => isVisible(display, filters, minimum))
-  const relations = relationAccessors(spansById)
+  const visibleSpanIds = visibleSpans.map((display) => display.spanId)
+  const children = childIndex(spansById)
+  const relations = relationAccessors(spansById, children)
 
   return {
     selectedTrace,
     selectedSpanIds: selectedTrace.spanIds,
     selectedSpans,
-    visibleSpanIds: visibleSpans.map((display) => display.spanId),
+    visibleSpanIds,
+    visibleSpanIdSet: new Set(visibleSpanIds),
     visibleSpans,
     spansById,
     rootSpanIds: selectedTrace.rootSpanIds,
@@ -173,6 +221,9 @@ export function buildRuntimeView(bundle: RuntimeTraceBundle, traceId: string, fi
     cycleBreakSpanIds: selectedTrace.cycleBreakSpanIds,
     hotPathSpanIds: selectedTrace.hotPathSpanIds,
     errorPaths: selectedTrace.errorPaths,
+    callTreeRows: flatTreeRows(selectedTrace.rootSpanIds, children),
+    orphanTreeRows: flatTreeRows(selectedTrace.orphanSpanIds, children),
+    cycleBreakTreeRows: flatTreeRows(selectedTrace.cycleBreakSpanIds, children),
     warnings,
     warning: null,
     ...relations,

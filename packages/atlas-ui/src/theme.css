@@ -208,12 +208,25 @@
   overflow: auto;
 }
 
+.cv-runtime-timeline-scroll {
+  width: 100%;
+  max-height: min(420px, 60vh);
+  overflow: auto;
+  background: var(--surface);
+}
+
 .cv-runtime-timeline canvas {
   display: block;
   width: 100%;
   max-width: 100%;
   min-height: 240px;
   background: var(--surface);
+}
+
+.cv-runtime-timeline-hover {
+  min-height: 1.5em;
+  margin: 8px 0;
+  overflow-wrap: anywhere;
 }
 
 .cv-runtime-text-timeline {

@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import type { RuntimeSpanSelection } from './RuntimeInspector.js'
-import type { RuntimeViewModel } from './view-model.js'
+import type { RuntimeTreeRow, RuntimeViewModel } from './view-model.js'
 
 export interface TraceRailProps {
   view: RuntimeViewModel
@@ -22,7 +22,7 @@ function selectButton(
 ): ReactNode {
   const span = view.spansById.get(spanId)?.span
   if (span === undefined) return <span>{`Unavailable recorded span ${spanId}`}</span>
-  if (!view.visibleSpanIds.includes(spanId)) return <span>{`${spanLabel(view, spanId)} — hidden by current filters.`}</span>
+  if (!view.visibleSpanIdSet.has(spanId)) return <span>{`${spanLabel(view, spanId)} — hidden by current filters.`}</span>
   const traceId = view.selectedTrace?.traceId
   if (traceId === undefined) return <span>{spanLabel(view, spanId)}</span>
   return (
@@ -37,29 +37,27 @@ function selectButton(
   )
 }
 
-function childIds(view: RuntimeViewModel, parentSpanId: string): string[] {
-  return view.selectedSpans
-    .filter(({ span }) => span.relation === 'child' && span.parentSpanId === parentSpanId)
-    .map(({ spanId }) => spanId)
-}
-
-function treeItem(
+function treeList(
   view: RuntimeViewModel,
-  spanId: string,
+  rows: readonly RuntimeTreeRow[],
+  label: string,
   context: string,
   selection: RuntimeSpanSelection | null,
   onSelectSpan: (selection: RuntimeSpanSelection) => void,
-  visited: ReadonlySet<string> = new Set(),
 ): ReactNode {
-  if (visited.has(spanId)) return null
-  const nextVisited = new Set(visited)
-  nextVisited.add(spanId)
-  const children = childIds(view, spanId)
   return (
-    <li key={spanId}>
-      {selectButton(view, spanId, context, selection, onSelectSpan)}
-      {children.length > 0 ? <ol>{children.map((childId) => treeItem(view, childId, context, selection, onSelectSpan, nextVisited))}</ol> : null}
-    </li>
+    <ol role="tree" aria-label={label}>
+      {rows.map(({ spanId, depth }) => (
+        <li
+          key={spanId}
+          role="treeitem"
+          aria-level={depth}
+          style={{ paddingInlineStart: `${Math.min(depth - 1, 8) * 12}px` }}
+        >
+          {selectButton(view, spanId, context, selection, onSelectSpan)}
+        </li>
+      ))}
+    </ol>
   )
 }
 
@@ -82,9 +80,9 @@ function pathList(
 }
 
 export function TraceRail({ view, selection, onSelectSpan }: TraceRailProps) {
-  const firstHotPathSpanId = view.hotPathSpanIds.find((spanId) => view.visibleSpanIds.includes(spanId))
+  const firstHotPathSpanId = view.hotPathSpanIds.find((spanId) => view.visibleSpanIdSet.has(spanId))
   const firstErrorSpanId = view.errorPaths
-    .map((path) => [...path].reverse().find((spanId) => view.visibleSpanIds.includes(spanId)))
+    .map((path) => [...path].reverse().find((spanId) => view.visibleSpanIdSet.has(spanId)))
     .find((spanId) => spanId !== undefined)
   const traceId = view.selectedTrace?.traceId
   const hotPathUnavailableBecauseNoRoot = view.rootSpanIds.length === 0
@@ -93,22 +91,22 @@ export function TraceRail({ view, selection, onSelectSpan }: TraceRailProps) {
     <aside className="cv-runtime-trace-rail" aria-label="Recorded trace structure">
       <section>
         <h3>Recorded call tree</h3>
-        {view.rootSpanIds.length > 0
-          ? <ol>{view.rootSpanIds.map((spanId) => treeItem(view, spanId, 'call tree', selection, onSelectSpan))}</ol>
+        {view.callTreeRows.length > 0
+          ? treeList(view, view.callTreeRows, 'Recorded call tree', 'call tree', selection, onSelectSpan)
           : <p>No recorded root spans are available.</p>}
       </section>
 
       <section>
         <h3>Recorded orphan spans</h3>
-        {view.orphanSpanIds.length > 0
-          ? <ol>{view.orphanSpanIds.map((spanId) => treeItem(view, spanId, 'orphan group', selection, onSelectSpan))}</ol>
+        {view.orphanTreeRows.length > 0
+          ? treeList(view, view.orphanTreeRows, 'Recorded orphan spans', 'orphan group', selection, onSelectSpan)
           : <p>No recorded orphan spans.</p>}
       </section>
 
       <section>
         <h3>Cycle-broken spans</h3>
-        {view.cycleBreakSpanIds.length > 0
-          ? <ol>{view.cycleBreakSpanIds.map((spanId) => treeItem(view, spanId, 'cycle-broken group', selection, onSelectSpan))}</ol>
+        {view.cycleBreakTreeRows.length > 0
+          ? treeList(view, view.cycleBreakTreeRows, 'Cycle-broken spans', 'cycle-broken group', selection, onSelectSpan)
           : <p>No cycle-broken spans.</p>}
       </section>
 

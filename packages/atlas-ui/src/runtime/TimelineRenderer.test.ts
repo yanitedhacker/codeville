@@ -7,10 +7,10 @@ function view() {
   const traceId = '11111111111111111111111111111111'
   const bundle: RuntimeTraceBundle = {
     version: 1, format: 'otlp-json',
-    traces: [{ traceId, startTimeUnixNano: '0', endTimeUnixNano: '100', spanIds: ['root', 'error', 'tail'],
+    traces: [{ traceId, startTimeUnixNano: '0', endTimeUnixNano: '100', spanIds: ['root', 'error', 'tail', 'point'],
       rootSpanIds: ['root'], orphanSpanIds: [], cycleBreakSpanIds: [], hotPathSpanIds: ['root', 'tail'], errorPaths: [['root', 'error'], ['root', 'tail']] }],
-    spans: [runtimeSpan(traceId, 'root', 'root', '0', '100', 1), runtimeSpan(traceId, 'error', 'error', '10', '50', 2, 'root'), runtimeSpan(traceId, 'tail', 'tail', '90', '10', 2, 'root')],
-    report: { documents: 1, resourceScopeGroups: 1, traces: 1, inputSpans: 3, spans: 3, duplicateSpans: 0, sampledSpans: 3,
+    spans: [runtimeSpan(traceId, 'root', 'root', '0', '100', 1), runtimeSpan(traceId, 'error', 'error', '10', '50', 2, 'root'), runtimeSpan(traceId, 'tail', 'tail', '90', '10', 2, 'root'), runtimeSpan(traceId, 'point', 'point', '100', '0', 2, 'root')],
+    report: { documents: 1, resourceScopeGroups: 1, traces: 1, inputSpans: 4, spans: 4, duplicateSpans: 0, sampledSpans: 4,
       unsampledSpans: 0, redactedAttributes: 0, droppedAttributesCount: '0', droppedEventsCount: '0', droppedLinksCount: '0', unknownFieldCount: 0, unknownFields: [] },
   }
   return buildRuntimeView(bundle, traceId, { service: null, status: 'all', minDurationNano: '0', errorsOnly: false })
@@ -28,16 +28,37 @@ function runtimeSpan(traceId: string, spanId: string, name: string, start: strin
 
 class FakeContext {
   readonly calls: string[] = []
+  readonly fillRects: Array<{ x: number; y: number; width: number; height: number }> = []
+  readonly clipRects: Array<{ x: number; y: number; width: number; height: number }> = []
+  readonly texts: Array<{ text: string; x: number; y: number }> = []
   fillStyle = ''
   strokeStyle = ''
   lineWidth = 1
   font = ''
   textBaseline: CanvasTextBaseline = 'alphabetic'
+  textAlign: CanvasTextAlign = 'start'
   setTransform(...values: number[]): void { this.calls.push(`setTransform:${values.join(',')}`) }
   clearRect(): void { this.calls.push('clearRect') }
-  fillRect(): void { this.calls.push('fillRect') }
+  fillRect(x: number, y: number, width: number, height: number): void {
+    this.calls.push('fillRect')
+    this.fillRects.push({ x, y, width, height })
+  }
   strokeRect(): void { this.calls.push('strokeRect') }
-  fillText(text: string): void { this.calls.push(`fillText:${text}`) }
+  fillText(text: string, x: number, y: number): void {
+    this.calls.push(`fillText:${text}`)
+    this.texts.push({ text, x, y })
+  }
+  save(): void { this.calls.push('save') }
+  restore(): void { this.calls.push('restore') }
+  beginPath(): void { this.calls.push('beginPath') }
+  rect(x: number, y: number, width: number, height: number): void {
+    this.calls.push('rect')
+    this.clipRects.push({ x, y, width, height })
+  }
+  clip(): void { this.calls.push('clip') }
+  moveTo(): void { this.calls.push('moveTo') }
+  lineTo(): void { this.calls.push('lineTo') }
+  stroke(): void { this.calls.push('stroke') }
 }
 
 function fakeCanvas(context: FakeContext): HTMLCanvasElement {
@@ -117,5 +138,20 @@ describe('TimelineRenderer', () => {
     renderer.setView(view())
 
     expect(context.calls).toHaveLength(beforeDispose)
+  })
+
+  it('clips four-pixel paint to its bar and draws a labeled relative-time grid', () => {
+    const context = new FakeContext()
+    const renderer = new TimelineRenderer(fakeCanvas(context))
+    renderer.resize(800, 240)
+    renderer.setView(view())
+
+    const pointRect = context.fillRects.find((rect) => rect.x === 796 && rect.width === 4)
+    expect(pointRect).toBeDefined()
+    expect(context.clipRects).toContainEqual(pointRect)
+    const pointStatus = context.texts.filter((entry) => entry.text === '!').at(-1)!
+    expect(pointStatus.x).toBeGreaterThanOrEqual(pointRect!.x)
+    expect(pointStatus.x).toBeLessThan(pointRect!.x + pointRect!.width)
+    expect(context.texts.map((entry) => entry.text)).toEqual(expect.arrayContaining(['+0 ns', '+25 ns', '+50 ns', '+75 ns', '+100 ns']))
   })
 })

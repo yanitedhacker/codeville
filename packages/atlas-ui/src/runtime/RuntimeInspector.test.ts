@@ -53,8 +53,9 @@ function render(
   onOpenSource = vi.fn(),
   onSelectSpan = vi.fn(),
   runtime = bundle,
+  onTab = vi.fn(),
 ) {
-  return RuntimeInspector({ span, trace: runtime.traces[0]!, bundle: runtime, tab, onTab: vi.fn(), onSelectSpan, onOpenSource })
+  return RuntimeInspector({ span, trace: runtime.traces[0]!, bundle: runtime, tab, onTab, onSelectSpan, onOpenSource })
 }
 
 describe('RuntimeInspector', () => {
@@ -177,5 +178,23 @@ describe('RuntimeInspector', () => {
       expect(tab?.props.role).toBe('tab')
     }
     expect(text(render('span', null))).toContain('Select a recorded span to inspect its exact evidence.')
+  })
+
+  it('uses one roving tab stop with unique labels for the controlled panel', () => {
+    const elements = walk(render('resource'))
+    const tabs = elements.filter((element) => element.props.role === 'tab')
+    const panel = elements.find((element) => element.props.role === 'tabpanel')
+
+    expect(tabs.map((tab) => tab.props.id)).toEqual([
+      'cv-runtime-inspector-tab-span',
+      'cv-runtime-inspector-tab-resource',
+      'cv-runtime-inspector-tab-scope',
+      'cv-runtime-inspector-tab-attributes',
+      'cv-runtime-inspector-tab-events',
+      'cv-runtime-inspector-tab-links',
+    ])
+    expect(tabs.map((tab) => tab.props.tabIndex)).toEqual([-1, 0, -1, -1, -1, -1])
+    expect(tabs.every((tab) => typeof tab.props.onKeyDown === 'function')).toBe(true)
+    expect(panel?.props['aria-labelledby']).toBe('cv-runtime-inspector-tab-resource')
   })
 })

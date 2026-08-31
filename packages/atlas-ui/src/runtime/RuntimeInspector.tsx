@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import type { KeyboardEvent, ReactNode } from 'react'
 import type {
   DerivedRuntimeSpan,
   RuntimeAttribute,
@@ -33,6 +33,32 @@ const TABS: readonly { id: RuntimeInspectorTab; label: string }[] = [
   { id: 'events', label: 'Events' },
   { id: 'links', label: 'Links' },
 ]
+
+const PANEL_ID = 'cv-runtime-inspector-panel'
+
+function tabId(id: RuntimeInspectorTab): string {
+  return `cv-runtime-inspector-tab-${id}`
+}
+
+function moveTab(
+  event: KeyboardEvent<HTMLButtonElement>,
+  current: RuntimeInspectorTab,
+  onTab: (tab: RuntimeInspectorTab) => void,
+): void {
+  const currentIndex = TABS.findIndex((tab) => tab.id === current)
+  let nextIndex: number | undefined
+  if (event.key === 'ArrowRight') nextIndex = (currentIndex + 1) % TABS.length
+  if (event.key === 'ArrowLeft') nextIndex = (currentIndex - 1 + TABS.length) % TABS.length
+  if (event.key === 'Home') nextIndex = 0
+  if (event.key === 'End') nextIndex = TABS.length - 1
+  if (nextIndex === undefined) return
+  event.preventDefault()
+  const next = TABS[nextIndex]!
+  onTab(next.id)
+  event.currentTarget.parentElement
+    ?.querySelector<HTMLButtonElement>(`#${tabId(next.id)}`)
+    ?.focus()
+}
 
 function statusLabel(code: number): string {
   if (code === 1) return 'ok'
@@ -211,17 +237,20 @@ export function RuntimeInspector(props: RuntimeInspectorProps) {
         {TABS.map(({ id, label }) => (
           <button
             key={id}
+            id={tabId(id)}
             type="button"
             role="tab"
             aria-selected={props.tab === id}
-            aria-controls="cv-runtime-inspector-panel"
+            aria-controls={PANEL_ID}
+            tabIndex={props.tab === id ? 0 : -1}
             onClick={() => props.onTab(id)}
+            onKeyDown={(event) => moveTab(event, id, props.onTab)}
           >
             {label}
           </button>
         ))}
       </div>
-      <div id="cv-runtime-inspector-panel" role="tabpanel">
+      <div id={PANEL_ID} role="tabpanel" aria-labelledby={tabId(props.tab)}>
         {activePanel(props)}
       </div>
     </aside>

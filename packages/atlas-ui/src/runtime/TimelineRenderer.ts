@@ -1,4 +1,4 @@
-import { layoutTimeline, spanAt, type TimelineLayout } from './timeline-geometry.js'
+import { layoutTimeline, spanAt, timelineContentHeight, type TimelineLayout } from './timeline-geometry.js'
 import type { RuntimeViewModel } from './view-model.js'
 
 const MIN_ZOOM = 1
@@ -43,6 +43,12 @@ export class TimelineRenderer {
     this.selectedSpanId = selectedSpanId !== null && view.spansById.has(selectedSpanId)
       ? selectedSpanId
       : null
+    const requiredHeight = timelineContentHeight(view)
+    if (this.height < requiredHeight) {
+      this.height = requiredHeight
+      this.canvas.height = Math.max(1, Math.round(this.height * this.pixelRatio))
+      this.canvas.style.height = `${this.height}px`
+    }
     this.paint()
   }
 
@@ -99,10 +105,31 @@ export class TimelineRenderer {
       zoom: this.zoom,
       offsetX: this.offsetX,
     })
+    context.save()
+    context.beginPath()
+    context.rect(this.layout.plotLeft, 0, this.layout.plotWidth, this.layout.height)
+    context.clip()
+    for (const tick of this.layout.ticks) {
+      context.strokeStyle = '#a9aa91'
+      context.lineWidth = 1
+      context.beginPath()
+      context.moveTo(tick.x, 20)
+      context.lineTo(tick.x, this.layout.height)
+      context.stroke()
+      context.fillStyle = '#5b6266'
+      context.font = '10px ui-monospace, monospace'
+      context.textBaseline = 'top'
+      context.textAlign = tick.x <= this.layout.plotLeft
+        ? 'left'
+        : tick.x >= this.layout.width - 1 ? 'right' : 'center'
+      context.fillText(tick.label, tick.x, 4)
+    }
+    context.restore()
     for (const lane of this.layout.lanes) {
       context.fillStyle = '#333333'
       context.font = '12px ui-monospace, monospace'
       context.textBaseline = 'middle'
+      context.textAlign = 'left'
       context.fillText(lane.serviceName, 8, lane.y + lane.height / 2)
     }
     const ancestors = this.selectedSpanId ? new Set(this.view.ancestorSpanIds(this.selectedSpanId)) : new Set<string>()
@@ -111,18 +138,31 @@ export class TimelineRenderer {
       const display = this.view.spansById.get(bar.spanId)
       if (!display) continue
       const related = ancestors.has(bar.spanId) || descendants.has(bar.spanId)
+      context.save()
+      context.beginPath()
+      context.rect(bar.x, bar.y, bar.width, bar.height)
+      context.clip()
       context.fillStyle = related ? '#9aa1a5' : '#c6cbce'
       context.fillRect(bar.x, bar.y, bar.width, bar.height)
       context.fillStyle = '#222222'
       context.font = '11px ui-monospace, monospace'
       context.textBaseline = 'middle'
-      context.fillText(display.span.name, bar.x + 3, bar.y + bar.height / 2)
-      context.fillText(bar.status === 2 ? '!' : bar.status === 1 ? '✓' : '○', bar.x + bar.width - 10, bar.y + bar.height / 2)
+      if (bar.width >= 24) {
+        context.textAlign = 'left'
+        context.fillText(display.span.name, bar.x + Math.min(3, bar.width / 2), bar.y + bar.height / 2)
+      }
+      context.textAlign = 'center'
+      context.fillText(
+        bar.status === 2 ? '!' : bar.status === 1 ? '✓' : '○',
+        bar.x + Math.max(0.5, bar.width - Math.min(6, bar.width / 2)),
+        bar.y + bar.height / 2,
+      )
       if (related || bar.spanId === this.selectedSpanId) {
         context.strokeStyle = bar.spanId === this.selectedSpanId ? '#111111' : '#5b6266'
         context.lineWidth = bar.spanId === this.selectedSpanId ? 2 : 1
         context.strokeRect(bar.x, bar.y, bar.width, bar.height)
       }
+      context.restore()
     }
   }
 }

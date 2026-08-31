@@ -150,4 +150,53 @@ describe('TraceRail', () => {
       'Error path is a recorded error span and its known parent ancestry. It is not a root-cause claim.',
     )
   })
+
+  it('uses a shallow accessible tree with explicit depth', () => {
+    const view = buildRuntimeView(bundle(), TRACE_ID, { service: null, status: 'all', minDurationNano: '0', errorsOnly: false })
+    const elements = walk(TraceRail({ view, selection: null, onSelectSpan: vi.fn() }))
+    const tree = elements.find((element) => element.type === 'ol' && element.props['aria-label'] === 'Recorded call tree')
+    const items = tree === undefined
+      ? []
+      : walk(tree.props.children).filter((element) => element.props.role === 'treeitem')
+
+    expect(tree?.props.role).toBe('tree')
+    expect(items.map((item) => item.props['aria-level'])).toEqual([1, 2])
+    expect(items.every((item) => walk(item.props.children).every((child) => child.type !== 'ol'))).toBe(true)
+  })
+
+  it.each(['deep', 'wide'] as const)('renders an accepted 20,000-span %s tree without recursion', (shape) => {
+    const count = 20_000
+    const spans = Array.from({ length: count }, (_, index) => {
+      const spanId = `span-${index}`
+      const parentSpanId = index === 0
+        ? undefined
+        : shape === 'deep' ? `span-${index - 1}` : 'span-0'
+      return span(spanId, spanId, index === 0 ? 'root' : 'child', parentSpanId)
+    })
+    const input: RuntimeTraceBundle = {
+      version: 1,
+      format: 'otlp-json',
+      traces: [{
+        traceId: TRACE_ID,
+        startTimeUnixNano: '0',
+        endTimeUnixNano: '10',
+        spanIds: spans.map((item) => item.spanId),
+        rootSpanIds: ['span-0'],
+        orphanSpanIds: [],
+        cycleBreakSpanIds: [],
+        hotPathSpanIds: [],
+        errorPaths: [],
+      }],
+      spans,
+      report: {
+        documents: 1, resourceScopeGroups: 1, traces: 1, inputSpans: count, spans: count, duplicateSpans: 0,
+        sampledSpans: count, unsampledSpans: 0, redactedAttributes: 0, droppedAttributesCount: '0',
+        droppedEventsCount: '0', droppedLinksCount: '0', unknownFieldCount: 0, unknownFields: [],
+      },
+    }
+    const view = buildRuntimeView(input, TRACE_ID, { service: null, status: 'all', minDurationNano: '0', errorsOnly: false })
+
+    expect(() => TraceRail({ view, selection: null, onSelectSpan: vi.fn() })).not.toThrow()
+    expect(view.callTreeRows).toHaveLength(count)
+  })
 })

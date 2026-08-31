@@ -1,6 +1,7 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { RuntimeTrace } from '@codeville/core'
 import { TimelineRenderer } from './TimelineRenderer.js'
+import { timelineContentHeight } from './timeline-geometry.js'
 import type { RuntimeSpanSelection } from './RuntimeInspector.js'
 import type { RuntimeDisplaySpan, RuntimeViewModel } from './view-model.js'
 
@@ -57,6 +58,10 @@ export function timelineRowText(span: RuntimeDisplaySpan, trace: RuntimeTrace): 
   ].join(' / ')
 }
 
+function hoverText(span: RuntimeDisplaySpan, trace: RuntimeTrace): string {
+  return `Hovered span: ${span.serviceName}; ${span.span.name} (${span.spanId}); starts ${relativeStart(span, trace)}; duration ${formattedNano(span.span.durationNano)} ns; status ${span.status}.`
+}
+
 function canvasPoint(event: { offsetX?: number; offsetY?: number }): { x: number; y: number } {
   const offsetX = event.offsetX
   const offsetY = event.offsetY
@@ -65,6 +70,7 @@ function canvasPoint(event: { offsetX?: number; offsetY?: number }): { x: number
 }
 
 export function Timeline({ view, trace, selection, onSelectSpan }: TimelineProps) {
+  const [hoveredSpanId, setHoveredSpanId] = useState<string | null>(null)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const rendererRef = useRef<TimelineRenderer | null>(null)
   const dragRef = useRef<{ pointerId: number; startX: number; startY: number; lastX: number; dragged: boolean } | null>(null)
@@ -99,8 +105,9 @@ export function Timeline({ view, trace, selection, onSelectSpan }: TimelineProps
         drag.lastX = event.clientX
         if (Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) >= 4) drag.dragged = true
       }
-      spanAtEvent(event)
+      setHoveredSpanId(spanAtEvent(event))
     }
+    const pointerLeave = () => setHoveredSpanId(null)
     const pointerUp = (event: PointerEvent) => {
       const drag = dragRef.current
       if (drag !== null && drag.pointerId === event.pointerId) suppressClickRef.current = drag.dragged
@@ -136,6 +143,7 @@ export function Timeline({ view, trace, selection, onSelectSpan }: TimelineProps
     observer?.observe(canvas)
     canvas.addEventListener('pointerdown', pointerDown)
     canvas.addEventListener('pointermove', pointerMove)
+    canvas.addEventListener('pointerleave', pointerLeave)
     canvas.addEventListener('pointerup', pointerUp)
     canvas.addEventListener('pointercancel', pointerCancel)
     canvas.addEventListener('lostpointercapture', lostPointerCapture)
@@ -144,6 +152,7 @@ export function Timeline({ view, trace, selection, onSelectSpan }: TimelineProps
     return () => {
       canvas.removeEventListener('pointerdown', pointerDown)
       canvas.removeEventListener('pointermove', pointerMove)
+      canvas.removeEventListener('pointerleave', pointerLeave)
       canvas.removeEventListener('pointerup', pointerUp)
       canvas.removeEventListener('pointercancel', pointerCancel)
       canvas.removeEventListener('lostpointercapture', lostPointerCapture)
@@ -157,24 +166,40 @@ export function Timeline({ view, trace, selection, onSelectSpan }: TimelineProps
 
   useEffect(() => {
     const selectedSpanId = selection?.traceId === trace.traceId ? selection.spanId : null
+    const canvas = canvasRef.current
+    if (canvas !== null) rendererRef.current?.resize(canvas.clientWidth, canvas.clientHeight)
     rendererRef.current?.setView(view, selectedSpanId)
+    setHoveredSpanId((current) => current !== null && view.visibleSpanIdSet.has(current) ? current : null)
   }, [view, trace.traceId, selection])
+
+  const hoveredSpan = hoveredSpanId === null ? undefined : view.spansById.get(hoveredSpanId)
+  const canvasHeight = timelineContentHeight(view)
 
   return (
     <section className="cv-runtime-timeline" aria-label="Recorded span timeline">
       <div className="cv-runtime-timeline-controls">
+        <button type="button" onClick={() => rendererRef.current?.panBy(80)}>Pan earlier</button>
+        <button type="button" onClick={() => rendererRef.current?.panBy(-80)}>Pan later</button>
+        <button type="button" onClick={() => rendererRef.current?.zoomBy(1.25)}>Zoom in</button>
+        <button type="button" onClick={() => rendererRef.current?.zoomBy(0.8)}>Zoom out</button>
         <button type="button" onClick={() => rendererRef.current?.resetView()}>Reset timeline view</button>
       </div>
       <p id="cv-runtime-timeline-help">
-        Use pointer drag to pan, the wheel to zoom, and click to select. The complete recorded timeline is also available as buttons below.
+        Use the labeled buttons or pointer drag to pan, the labeled buttons or wheel to zoom, and click to select. The complete recorded timeline is also available as buttons below.
       </p>
-      <canvas
-        ref={canvasRef}
-        role="img"
-        tabIndex={0}
-        aria-label={`Observed span timeline for trace ${trace.traceId}`}
-        aria-describedby="cv-runtime-timeline-help"
-      />
+      <div className="cv-runtime-timeline-scroll" role="region" aria-label="Scrollable recorded service lanes" tabIndex={0}>
+        <canvas
+          ref={canvasRef}
+          role="img"
+          tabIndex={0}
+          style={{ height: `${canvasHeight}px` }}
+          aria-label={`Observed span timeline for trace ${trace.traceId}`}
+          aria-describedby="cv-runtime-timeline-help"
+        />
+      </div>
+      <p className="cv-runtime-timeline-hover" role="status" aria-live="polite">
+        {hoveredSpan === undefined ? 'No recorded span is under the pointer.' : hoverText(hoveredSpan, trace)}
+      </p>
       {view.visibleSpans.length === 0 ? <p>No recorded spans match the current filters.</p> : null}
       <ol className="cv-runtime-text-timeline" aria-label="Text timeline">
         {view.visibleSpans.map((span) => (

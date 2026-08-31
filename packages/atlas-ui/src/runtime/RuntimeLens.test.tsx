@@ -262,6 +262,23 @@ describe('RuntimeLens', () => {
     expect(text(render().value)).toContain(`Trace ID: ${TRACE_ONE}`)
   })
 
+  it('clears a service filter that is absent after a trace transition', () => {
+    const first = render()
+    const service = first.elements.find((element) => element.type === 'select' && element.props.id === 'cv-runtime-service-filter')
+    service?.props.onChange({ currentTarget: { value: 'db' } })
+    const filtered = render()
+    expect(harness.state.timelineProps?.view.visibleSpanIds).toEqual(['child'])
+
+    button(filtered.elements, 'Next trace')?.props.onClick()
+    render()
+    const settled = render()
+    const settledService = settled.elements.find((element) => element.type === 'select' && element.props.id === 'cv-runtime-service-filter')
+
+    expect(settledService?.props.value).toBe('')
+    expect(harness.state.timelineProps?.view.selectedSpans.map((span: { serviceName: string }) => span.serviceName)).toEqual(['api'])
+    expect(harness.state.timelineProps?.view.visibleSpanIds).toEqual(['child'])
+  })
+
   it('announces a changed completeness state through the polite status node', () => {
     const initial = runtimeBundle()
     render(initial)

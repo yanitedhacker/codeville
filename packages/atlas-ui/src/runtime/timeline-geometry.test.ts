@@ -60,18 +60,19 @@ describe('layoutTimeline', () => {
     expect(layout.bars.map((bar) => bar.lane)).toEqual([2, 0, 1])
   })
 
-  it('clips short and zero-duration bars without non-finite coordinates', () => {
+  it('keeps short and zero-duration bars inside the grown content height without non-finite coordinates', () => {
     const view = viewWithEpoch({
       traceStart: '999999999999999999999999999999', traceDuration: '0',
       spans: [{ startOffset: '0', duration: '0', service: 'api' }],
     })
     const layout = layoutTimeline(view, { width: 80, height: 40, zoom: 999, offsetX: 0 })
 
-    expect(layout.bars[0]).toMatchObject({ x: 79, y: 30, width: 1, height: 10 })
+    expect(layout.bars[0]).toMatchObject({ x: 79, y: 30, width: 1, height: 20 })
+    expect(layout.height).toBe(240)
     expect(layout.bars.every((bar) => Number.isFinite(bar.x) && Number.isFinite(bar.width))).toBe(true)
   })
 
-  it('omits point bars outside the plot and clips intersecting span intervals', () => {
+  it('clamps an exact-end point inside the plot and clips intersecting span intervals', () => {
     const view = viewWithEpoch({
       traceStart: '0', traceDuration: '100',
       spans: [
@@ -82,13 +83,14 @@ describe('layoutTimeline', () => {
     })
 
     expect(layoutTimeline(view, { width: 800, height: 100, zoom: 1, offsetX: 0 }).bars).toEqual([
+      expect.objectContaining({ spanId: 'right-point', x: 796, width: 4 }),
       expect.objectContaining({ spanId: 'left-point', x: 160, width: 4 }),
       expect.objectContaining({ spanId: 'intersects', x: 736, width: 64 }),
     ])
     expect(layoutTimeline(view, { width: 800, height: 100, zoom: 1, offsetX: -1000 }).bars).toEqual([])
   })
 
-  it('omits vertical lanes outside the viewport without duplicate bottom hit targets', () => {
+  it('grows a short viewport and keeps each vertical lane hit target distinct', () => {
     const view = viewWithEpoch({
       traceStart: '0', traceDuration: '100',
       spans: [
@@ -99,10 +101,17 @@ describe('layoutTimeline', () => {
     })
     const layout = layoutTimeline(view, { width: 800, height: 40, zoom: 1, offsetX: 0 })
 
-    expect(layout.lanes.map((lane) => lane.serviceName)).toEqual(['api'])
-    expect(layout.bars).toEqual([expect.objectContaining({ spanId: 'api', y: 30, height: 10 })])
+    expect(layout.height).toBe(240)
+    expect(layout.lanes.map((lane) => lane.serviceName)).toEqual(['api', 'worker', 'zeta'])
+    expect(layout.bars).toEqual([
+      expect.objectContaining({ spanId: 'api', y: 30, height: 20 }),
+      expect.objectContaining({ spanId: 'worker', y: 62, height: 20 }),
+      expect.objectContaining({ spanId: 'zeta', y: 94, height: 20 }),
+    ])
     expect(spanAt(layout, 200, 39)?.spanId).toBe('api')
-    expect(spanAt(layout, 200, 70)).toBeNull()
+    expect(spanAt(layout, 200, 70)?.spanId).toBe('worker')
+    expect(spanAt(layout, 200, 102)?.spanId).toBe('zeta')
+    expect(spanAt(layout, 200, 240)).toBeNull()
   })
 
   it('returns the topmost last-evidence bar during hit testing', () => {
@@ -116,5 +125,50 @@ describe('layoutTimeline', () => {
     const layout = layoutTimeline(view, { width: 800, height: 400, zoom: 1, offsetX: 0 })
 
     expect(spanAt(layout, 200, 34)?.spanId).toBe('late')
+  })
+
+  it('keeps an exact-end point hit-testable and uses half-open rectangle edges', () => {
+    const view = viewWithEpoch({
+      traceStart: '0', traceDuration: '100',
+      spans: [{ spanId: 'end', startOffset: '100', duration: '0', service: 'api' }],
+    })
+    const layout = layoutTimeline(view, { width: 390, height: 100, zoom: 1, offsetX: 0 })
+    const bar = layout.bars[0]!
+
+    expect(bar).toMatchObject({ spanId: 'end', x: 386, width: 4 })
+    expect(spanAt(layout, 389, bar.y + 1)?.spanId).toBe('end')
+    expect(spanAt(layout, 390, bar.y + 1)).toBeNull()
+    expect(spanAt(layout, bar.x + 1, bar.y + bar.height)).toBeNull()
+  })
+
+  it('grows the content height so eight service lanes are vertically reachable at 390px', () => {
+    const view = viewWithEpoch({
+      traceStart: '0', traceDuration: '100',
+      spans: Array.from({ length: 8 }, (_, index) => ({
+        spanId: `service-${index}`,
+        startOffset: String(index),
+        duration: '10',
+        service: `service-${index}`,
+      })),
+    })
+    const layout = layoutTimeline(view, { width: 390, height: 240, zoom: 1, offsetX: 0 })
+    const last = layout.bars.find((bar) => bar.spanId === 'service-7')!
+
+    expect(layout.height).toBeGreaterThanOrEqual(280)
+    expect(layout.lanes).toHaveLength(8)
+    expect(layout.bars).toHaveLength(8)
+    expect(last.y + last.height).toBeLessThanOrEqual(layout.height)
+    expect(spanAt(layout, last.x + 1, last.y + 1)?.spanId).toBe('service-7')
+  })
+
+  it('provides labeled relative-time ticks inside the plot', () => {
+    const view = viewWithEpoch({
+      traceStart: '18446744073709550000', traceDuration: '100',
+      spans: [{ startOffset: '0', duration: '100', service: 'api' }],
+    })
+    const layout = layoutTimeline(view, { width: 390, height: 240, zoom: 1, offsetX: 0 })
+
+    expect(layout.ticks.map((tick) => tick.label)).toEqual(['+0 ns', '+25 ns', '+50 ns', '+75 ns', '+100 ns'])
+    expect(layout.ticks.every((tick) => tick.x >= layout.plotLeft && tick.x < layout.width)).toBe(true)
   })
 })

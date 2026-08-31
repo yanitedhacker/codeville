@@ -122,4 +122,41 @@ describe('buildRuntimeView', () => {
     expect(view.visibleSpanIds).toEqual([])
     expect(view.warning).toBe('Selected trace is unavailable.')
   })
+
+  it.each(['deep', 'wide'] as const)('projects an accepted 20,000-span %s tree iteratively', (shape) => {
+    const count = 20_000
+    const spans = Array.from({ length: count }, (_, index) => {
+      const spanId = `span-${index}`
+      const parentSpanId = index === 0
+        ? undefined
+        : shape === 'deep' ? `span-${index - 1}` : 'span-0'
+      return span(spanId, spanId, String(index), '1', 'api', 0, parentSpanId)
+    })
+    const large: RuntimeTraceBundle = {
+      version: 1,
+      format: 'otlp-json',
+      traces: [{
+        traceId: TRACE_ID,
+        startTimeUnixNano: '0',
+        endTimeUnixNano: String(count),
+        spanIds: spans.map((item) => item.spanId),
+        rootSpanIds: ['span-0'],
+        orphanSpanIds: [],
+        cycleBreakSpanIds: [],
+        hotPathSpanIds: [],
+        errorPaths: [],
+      }],
+      spans,
+      report: { ...report(), inputSpans: count, spans: count, sampledSpans: count },
+    }
+
+    const view = buildRuntimeView(large, TRACE_ID, {
+      service: null, status: 'all', minDurationNano: '0', errorsOnly: false,
+    })
+
+    expect(view.callTreeRows).toHaveLength(count)
+    expect(view.callTreeRows[0]).toEqual({ spanId: 'span-0', depth: 1 })
+    expect(view.callTreeRows.at(-1)?.depth).toBe(shape === 'deep' ? count : 2)
+    expect(view.descendantSpanIds('span-0')).toHaveLength(count - 1)
+  })
 })
