@@ -200,6 +200,104 @@ describe('deriveRuntimeTraces', () => {
     expect(importOtlpTraceJson(JSON.stringify(document)).traces[0]!.errorPaths).toEqual([])
   })
 
+  it('bounds shared resource and scope amplification by serialized bundle bytes', () => {
+    const sharedValue = 'shared-runtime-evidence-'.repeat(16)
+    const spans = Array.from({ length: 4 }, (_, index) => otlpSpan({
+      spanId: String(index + 1).repeat(16),
+      start: String(index * 10),
+      end: String(index * 10 + 5),
+    }))
+    const document = {
+      resourceSpans: [{
+        resource: {
+          attributes: [otlpAttribute('shared.resource', { stringValue: sharedValue })],
+          droppedAttributesCount: 0,
+        },
+        scopeSpans: [{
+          scope: {
+            name: 'shared scope',
+            version: '1',
+            attributes: [otlpAttribute('shared.scope', { stringValue: sharedValue })],
+            droppedAttributesCount: 0,
+          },
+          spans,
+        }],
+      }],
+    }
+    const text = JSON.stringify(document)
+    const baseline = importOtlpTraceJson(text)
+    const serialized = JSON.stringify(baseline)
+    const serializedBytes = new TextEncoder().encode(serialized).byteLength
+
+    expect(serialized.split(sharedValue)).toHaveLength(9)
+    expect(importOtlpTraceJson(text, {
+      limits: { maxSerializedBundleBytes: serializedBytes },
+    })).toEqual(baseline)
+    expect(() => importOtlpTraceJson(text, {
+      limits: { maxSerializedBundleBytes: serializedBytes - 1 },
+    })).toThrowError(expect.objectContaining({
+      code: 'limit',
+      limit: 'maxSerializedBundleBytes',
+      actual: serializedBytes,
+    }))
+  })
+
+  it('bounds the total retained error-path identifiers at the exact limit', () => {
+    const spans = [
+      otlpSpan({ spanId: '1'.repeat(16), start: '0', end: '10', spanExtra: { status: { code: 2 } } }),
+      otlpSpan({ spanId: '2'.repeat(16), parentSpanId: '1'.repeat(16), start: '10', end: '20', spanExtra: { status: { code: 2 } } }),
+      otlpSpan({ spanId: '3'.repeat(16), parentSpanId: '2'.repeat(16), start: '20', end: '30', spanExtra: { status: { code: 2 } } }),
+    ]
+    const text = JSON.stringify({
+      resourceSpans: [{
+        resource: { attributes: [], droppedAttributesCount: 0 },
+        scopeSpans: [{ scope: { attributes: [], droppedAttributesCount: 0 }, spans }],
+      }],
+    })
+
+    expect(importOtlpTraceJson(text, { limits: { maxErrorPathIds: 6 } }).traces[0]!.errorPaths).toEqual([
+      ['1111111111111111'],
+      ['1111111111111111', '2222222222222222'],
+      ['1111111111111111', '2222222222222222', '3333333333333333'],
+    ])
+    expect(() => importOtlpTraceJson(text, { limits: { maxErrorPathIds: 5 } })).toThrowError(
+      expect.objectContaining({ code: 'limit', limit: 'maxErrorPathIds', actual: 6 }),
+    )
+  })
+
+  it('derives an accepted 20,000-span chain without call-stack recursion', () => {
+    const spanCount = 20_000
+    const spans = Array.from({ length: spanCount }, (_, index) => {
+      const spanId = String(index + 1).padStart(16, '0')
+      return otlpSpan({
+        spanId,
+        ...(index === 0 ? {} : { parentSpanId: String(index).padStart(16, '0') }),
+        start: String(index),
+        end: String(index + 1),
+        ...(index === spanCount - 1 ? { spanExtra: { status: { code: 2 } } } : {}),
+      })
+    })
+    const text = JSON.stringify({
+      resourceSpans: [{
+        resource: { attributes: [], droppedAttributesCount: 0 },
+        scopeSpans: [{ scope: { attributes: [], droppedAttributesCount: 0 }, spans }],
+      }],
+    })
+
+    const bundle = importOtlpTraceJson(text, {
+      limits: {
+        maxSpans: spanCount,
+        maxSpansPerTrace: spanCount,
+        maxErrorPathIds: spanCount,
+      },
+    })
+
+    expect(bundle.spans).toHaveLength(spanCount)
+    expect(bundle.traces[0]!.hotPathSpanIds).toHaveLength(spanCount)
+    expect(bundle.traces[0]!.errorPaths).toHaveLength(1)
+    expect(bundle.traces[0]!.errorPaths[0]).toHaveLength(spanCount)
+  })
+
   it('normalizes equivalent public JSON and JSON Lines evidence identically', async () => {
     const fixtureUrl = new URL('../../../../fixtures/runtime/', import.meta.url)
     const [jsonText, jsonlText] = await Promise.all([

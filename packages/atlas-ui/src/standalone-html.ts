@@ -1,4 +1,10 @@
-import type { Atlas, RuntimeTraceBundle } from '@codeville/core'
+import {
+  DEFAULT_RUNTIME_IMPORT_LIMITS,
+  assertRuntimeBundleSerializedBytes,
+  type Atlas,
+  type RuntimeImportOptions,
+  type RuntimeTraceBundle,
+} from '@codeville/core'
 
 const CONTENT_SECURITY_POLICY = "default-src 'none'; connect-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; font-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"
 
@@ -11,7 +17,13 @@ export function renderStandaloneHtml(
   js: string,
   css: string,
   runtime?: RuntimeTraceBundle,
+  options: RuntimeImportOptions = {},
 ): string {
+  const maxSerializedBundleBytes = options.limits?.maxSerializedBundleBytes
+    ?? DEFAULT_RUNTIME_IMPORT_LIMITS.maxSerializedBundleBytes
+  if (runtime !== undefined) {
+    assertRuntimeBundleSerializedBytes(runtime, maxSerializedBundleBytes, { escapeForScript: true })
+  }
   const runtimePayload = runtime === undefined
     ? ''
     : `\n<script>window.__CODEVILLE_RUNTIME__=${embedJson(runtime)}</script>`

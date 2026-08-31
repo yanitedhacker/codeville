@@ -48,6 +48,30 @@ describe('renderStandaloneHtml', () => {
     expect(html).toContain('window.__CODEVILLE_RUNTIME__=')
     expect(embeddedRuntime(html)).toEqual(runtime)
   })
+
+  it('rejects escaped runtime payload expansion above the bundle byte limit', () => {
+    const runtime = runtimeWithSpanName('<'.repeat(8))
+    const serialized = JSON.stringify(runtime)
+    const escaped = serialized
+      .replace(/</g, '\\u003c')
+      .replace(/>/g, '\\u003e')
+      .replace(/\u2028/g, '\\u2028')
+      .replace(/\u2029/g, '\\u2029')
+    const rawBytes = new TextEncoder().encode(serialized).byteLength
+    const escapedBytes = new TextEncoder().encode(escaped).byteLength
+
+    expect(escapedBytes).toBeGreaterThan(rawBytes)
+    expect(() => renderStandaloneHtml(atlas, 'globalThis.rendered=true', '.x{}', runtime, {
+      limits: { maxSerializedBundleBytes: rawBytes },
+    })).toThrowError(expect.objectContaining({
+      code: 'limit',
+      limit: 'maxSerializedBundleBytes',
+      actual: escapedBytes,
+    }))
+    expect(renderStandaloneHtml(atlas, 'globalThis.rendered=true', '.x{}', runtime, {
+      limits: { maxSerializedBundleBytes: escapedBytes },
+    })).toContain('window.__CODEVILLE_RUNTIME__=')
+  })
 })
 
 function runtimeWithSpanName(name: string): RuntimeTraceBundle {

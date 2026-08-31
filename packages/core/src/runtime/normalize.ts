@@ -99,10 +99,6 @@ function string(value: unknown, message: string): string {
   return value
 }
 
-function optionalString(value: unknown, message: string): string | undefined {
-  return value === undefined ? undefined : string(value, message)
-}
-
 function enumValue(value: unknown, minimum: number, maximum: number, message: string): number {
   if (typeof value !== 'number' || !Number.isInteger(value) || value < minimum || value > maximum) {
     throw schemaError(message)
@@ -183,6 +179,7 @@ function unknownPath(base: string, key: string): string {
 function noteUnknownFields(value: JsonRecord, allowed: ReadonlySet<string>, base: string, state: NormalizeState): void {
   for (const key of Object.keys(value)) {
     if (allowed.has(key)) continue
+    enforceValueBytes(key, state)
     state.unknownFieldCount += 1
     const path = unknownPath(base, key)
     const existing = state.unknownPaths.get(path)
@@ -210,6 +207,12 @@ function byteLength(value: string): number {
 function enforceValueBytes(value: string, state: NormalizeState, decodedBytes?: number): void {
   const actual = decodedBytes ?? byteLength(value)
   if (actual > state.limits.maxValueBytes) throw RuntimeImportError.limit('maxValueBytes', actual)
+}
+
+function retainedString(value: unknown, message: string, state: NormalizeState): string {
+  const decoded = string(value, message)
+  enforceValueBytes(decoded, state)
+  return decoded
 }
 
 function withValuePath<T>(state: NormalizeState, path: string, decode: () => T): T {
@@ -308,7 +311,7 @@ function decodeAttributes(
   const decoded = values.map((item): RuntimeAttribute => {
     const attribute = record(item, 'Runtime trace has an invalid attribute.')
     noteUnknownFields(attribute, ATTRIBUTE_KEYS, owner, state)
-    const key = string(attribute.key, 'Runtime trace has an invalid attribute key.')
+    const key = retainedString(attribute.key, 'Runtime trace has an invalid attribute key.', state)
     if (key.length === 0 || keys.has(key)) throw schemaError('Runtime trace has duplicate or invalid attribute keys.')
     keys.add(key)
     if (!('value' in attribute)) throw schemaError('Runtime trace has an attribute without a value.')
@@ -324,8 +327,8 @@ function decodeAttributes(
   return decoded
 }
 
-function decodeSchemaUrl(value: unknown): string | undefined {
-  return optionalString(value, 'Runtime trace has an invalid schema URL.')
+function decodeSchemaUrl(value: unknown, state: NormalizeState): string {
+  return retainedString(value, 'Runtime trace has an invalid schema URL.', state)
 }
 
 function addDroppedAttributes(state: NormalizeState, value: string): void {
@@ -339,7 +342,7 @@ function decodeResource(value: unknown, schemaUrl: unknown, state: NormalizeStat
   const droppedAttributesCount = unsigned32(resource.droppedAttributesCount, 'resource dropped attribute count')
   addDroppedAttributes(state, droppedAttributesCount)
   return {
-    ...(schemaUrl === undefined ? {} : { schemaUrl: decodeSchemaUrl(schemaUrl) }),
+    ...(schemaUrl === undefined ? {} : { schemaUrl: decodeSchemaUrl(schemaUrl, state) }),
     attributes: decodeAttributes(resource.attributes, `${path}.attributes[]`, state),
     droppedAttributesCount,
   }
@@ -352,9 +355,9 @@ function decodeScope(value: unknown, schemaUrl: unknown, state: NormalizeState):
   const droppedAttributesCount = unsigned32(scope.droppedAttributesCount, 'scope dropped attribute count')
   addDroppedAttributes(state, droppedAttributesCount)
   return {
-    ...(schemaUrl === undefined ? {} : { schemaUrl: decodeSchemaUrl(schemaUrl) }),
-    ...(scope.name === undefined ? {} : { name: string(scope.name, 'Runtime trace has an invalid scope name.') }),
-    ...(scope.version === undefined ? {} : { version: string(scope.version, 'Runtime trace has an invalid scope version.') }),
+    ...(schemaUrl === undefined ? {} : { schemaUrl: decodeSchemaUrl(schemaUrl, state) }),
+    ...(scope.name === undefined ? {} : { name: retainedString(scope.name, 'Runtime trace has an invalid scope name.', state) }),
+    ...(scope.version === undefined ? {} : { version: retainedString(scope.version, 'Runtime trace has an invalid scope version.', state) }),
     attributes: decodeAttributes(scope.attributes, `${path}.attributes[]`, state),
     droppedAttributesCount,
   }
@@ -369,7 +372,7 @@ function decodeEvent(value: unknown, state: NormalizeState): RuntimeSpanEvent {
   addDroppedAttributes(state, droppedAttributesCount)
   return {
     timeUnixNano: unsigned64(event.timeUnixNano, 'event time'),
-    name: string(event.name, 'Runtime trace has an invalid event name.'),
+    name: retainedString(event.name, 'Runtime trace has an invalid event name.', state),
     attributes: decodeAttributes(event.attributes, `${path}.attributes[]`, state),
     droppedAttributesCount,
   }
@@ -385,7 +388,7 @@ function decodeLink(value: unknown, state: NormalizeState): RuntimeSpanLink {
   return {
     traceId: hexId(link.traceId, 16, 'link trace ID'),
     spanId: hexId(link.spanId, 8, 'link span ID'),
-    ...(link.traceState === undefined ? {} : { traceState: string(link.traceState, 'Runtime trace has an invalid link trace state.') }),
+    ...(link.traceState === undefined ? {} : { traceState: retainedString(link.traceState, 'Runtime trace has an invalid link trace state.', state) }),
     flags: flags(link.flags, 'link flags'),
     attributes: decodeAttributes(link.attributes, `${path}.attributes[]`, state),
     droppedAttributesCount,
@@ -397,7 +400,7 @@ function decodeStatus(value: unknown, state: NormalizeState): RuntimeSpanStatus 
   const status = record(value, 'Runtime trace has an invalid span status.')
   noteUnknownFields(status, STATUS_KEYS, 'resourceSpans[].scopeSpans[].spans[].status', state)
   return {
-    ...(status.message === undefined ? {} : { message: string(status.message, 'Runtime trace has an invalid status message.') }),
+    ...(status.message === undefined ? {} : { message: retainedString(status.message, 'Runtime trace has an invalid status message.', state) }),
     code: status.code === undefined ? 0 : enumValue(status.code, 0, 2, 'Runtime trace has an invalid status code.'),
   }
 }
@@ -410,7 +413,7 @@ function decodeSpan(value: unknown, resource: RuntimeResource, scope: RuntimeSco
     if (!(required in span)) throw schemaError('Runtime trace span is missing a required lower-camel field.')
   }
 
-  const name = string(span.name, 'Runtime trace has an invalid span name.')
+  const name = retainedString(span.name, 'Runtime trace has an invalid span name.', state)
   if (name.length === 0) throw schemaError('Runtime trace has an empty span name.')
   const traceId = hexId(span.traceId, 16, 'trace ID')
   const spanId = hexId(span.spanId, 8, 'span ID')
@@ -451,7 +454,7 @@ function decodeSpan(value: unknown, resource: RuntimeResource, scope: RuntimeSco
     traceId,
     spanId,
     ...(span.parentSpanId === undefined ? {} : { parentSpanId: hexId(span.parentSpanId, 8, 'parent span ID') }),
-    ...(span.traceState === undefined ? {} : { traceState: string(span.traceState, 'Runtime trace has an invalid trace state.') }),
+    ...(span.traceState === undefined ? {} : { traceState: retainedString(span.traceState, 'Runtime trace has an invalid trace state.', state) }),
     flags: spanFlags,
     sampled: (spanFlags & 1) === 1,
     name,
@@ -478,6 +481,66 @@ function compareSpans(left: RuntimeSpan, right: RuntimeSpan): number {
     || (BigInt(left.endTimeUnixNano) < BigInt(right.endTimeUnixNano) ? -1
       : BigInt(left.endTimeUnixNano) > BigInt(right.endTimeUnixNano) ? 1 : 0)
     || compareText(left.spanId, right.spanId)
+}
+
+function sameJsonValue(left: unknown, right: unknown): boolean {
+  const pending: Array<[unknown, unknown]> = [[left, right]]
+  while (pending.length > 0) {
+    const [currentLeft, currentRight] = pending.pop()!
+    if (Object.is(currentLeft, currentRight)) continue
+    if (typeof currentLeft !== typeof currentRight) return false
+    if (typeof currentLeft !== 'object' || currentLeft === null || currentRight === null) return false
+
+    const leftIsArray = Array.isArray(currentLeft)
+    if (leftIsArray !== Array.isArray(currentRight)) return false
+    if (leftIsArray) {
+      const leftArray = currentLeft as unknown[]
+      const rightArray = currentRight as unknown[]
+      if (leftArray.length !== rightArray.length) return false
+      for (let index = 0; index < leftArray.length; index += 1) {
+        pending.push([leftArray[index], rightArray[index]])
+      }
+      continue
+    }
+
+    const leftRecord = currentLeft as JsonRecord
+    const rightRecord = currentRight as JsonRecord
+    const leftKeys = Object.keys(leftRecord)
+    const rightKeys = Object.keys(rightRecord)
+    if (leftKeys.length !== rightKeys.length) return false
+    for (const key of leftKeys) {
+      if (!Object.prototype.hasOwnProperty.call(rightRecord, key)) return false
+      pending.push([leftRecord[key], rightRecord[key]])
+    }
+  }
+  return true
+}
+
+function sameRecordExcept(left: JsonRecord, right: JsonRecord, excluded: string): boolean {
+  const leftKeys = Object.keys(left).filter((key) => key !== excluded)
+  const rightKeys = Object.keys(right).filter((key) => key !== excluded)
+  if (leftKeys.length !== rightKeys.length) return false
+  for (const key of leftKeys) {
+    if (!Object.prototype.hasOwnProperty.call(right, key) || !sameJsonValue(left[key], right[key])) {
+      return false
+    }
+  }
+  return true
+}
+
+function sameRawSpanEvidence(
+  existing: {
+    readonly rawResourceSpans: JsonRecord
+    readonly rawScopeSpans: JsonRecord
+    readonly rawSpan: JsonRecord
+  },
+  rawResourceSpans: JsonRecord,
+  rawScopeSpans: JsonRecord,
+  rawSpan: JsonRecord,
+): boolean {
+  return sameRecordExcept(existing.rawResourceSpans, rawResourceSpans, 'scopeSpans')
+    && sameRecordExcept(existing.rawScopeSpans, rawScopeSpans, 'spans')
+    && sameJsonValue(existing.rawSpan, rawSpan)
 }
 
 function validateLimits(limits: RuntimeImportLimits): void {
@@ -507,7 +570,12 @@ export function normalizeOtlpDocuments(
     droppedLinksCount: 0n,
     valuePath: '',
   }
-  const spansByIdentity = new Map<string, { span: RuntimeSpan; serialized: string }>()
+  const spansByIdentity = new Map<string, {
+    span: RuntimeSpan
+    rawResourceSpans: JsonRecord
+    rawScopeSpans: JsonRecord
+    rawSpan: JsonRecord
+  }>()
 
   for (const document of documents) {
     noteUnknownFields(document.raw, EXPORT_KEYS, '', state)
@@ -531,17 +599,26 @@ export function normalizeOtlpDocuments(
         const scope = decodeScope(scopeSpans.scope, scopeSpans.schemaUrl, state)
         const spanValues = array(scopeSpans.spans, 'Runtime trace has an invalid span list.')
 
-        for (const rawSpan of spanValues) {
-          const span = decodeSpan(rawSpan, resource, scope, state)
-          const identity = `${span.traceId}/${span.spanId}`
-          const serialized = JSON.stringify(span)
+        for (const rawSpanValue of spanValues) {
+          const rawSpan = record(rawSpanValue, 'Runtime trace has an invalid span.')
+          if (!('traceId' in rawSpan) || !('spanId' in rawSpan)) {
+            decodeSpan(rawSpan, resource, scope, state)
+            throw schemaError('Runtime trace span is missing a required lower-camel field.')
+          }
+          const identity = `${hexId(rawSpan.traceId, 16, 'trace ID')}/${hexId(rawSpan.spanId, 8, 'span ID')}`
           const existing = spansByIdentity.get(identity)
+          if (existing !== undefined && !sameRawSpanEvidence(existing, resourceSpans, scopeSpans, rawSpan)) {
+            throw new RuntimeImportError(
+              'conflict',
+              'Runtime trace contains a conflicting duplicate span at resourceSpans[].scopeSpans[].spans[].',
+            )
+          }
+
+          const span = decodeSpan(rawSpan, resource, scope, state)
           if (existing === undefined) {
-            spansByIdentity.set(identity, { span, serialized })
-          } else if (existing.serialized === serialized) {
-            state.duplicateSpans += 1
+            spansByIdentity.set(identity, { span, rawResourceSpans: resourceSpans, rawScopeSpans: scopeSpans, rawSpan })
           } else {
-            throw new RuntimeImportError('conflict', 'Runtime trace contains a conflicting duplicate span.')
+            state.duplicateSpans += 1
           }
         }
       }

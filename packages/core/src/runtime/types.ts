@@ -10,6 +10,8 @@ export interface RuntimeImportLimits {
   maxLinksPerSpan: number
   maxAttributeDepth: number
   maxValueBytes: number
+  maxSerializedBundleBytes: number
+  maxErrorPathIds: number
 }
 
 export const DEFAULT_RUNTIME_IMPORT_LIMITS: Readonly<RuntimeImportLimits> = {
@@ -24,6 +26,8 @@ export const DEFAULT_RUNTIME_IMPORT_LIMITS: Readonly<RuntimeImportLimits> = {
   maxLinksPerSpan: 128,
   maxAttributeDepth: 8,
   maxValueBytes: 16 * 1024,
+  maxSerializedBundleBytes: 64 * 1024 * 1024,
+  maxErrorPathIds: 1_000_000,
 }
 
 export interface RuntimeAttribute {

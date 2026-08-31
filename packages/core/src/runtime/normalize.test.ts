@@ -21,6 +21,68 @@ const traceDocument = (spans: JsonObject[]): JsonObject => ({
   }],
 })
 
+function compactStringDocument(options: Parameters<typeof otlpDocument>[0] = {}): JsonObject {
+  const document = otlpDocument({ name: 'ok', ...options })
+  const resourceSpans = (document.resourceSpans as JsonObject[])[0]!
+  const scopeSpans = (resourceSpans.scopeSpans as JsonObject[])[0]!
+  const scope = scopeSpans.scope as JsonObject
+  delete scope.name
+  delete scope.version
+  return document
+}
+
+function documentWithRetainedString(owner: string, value: string): JsonObject {
+  const document = compactStringDocument()
+  const resourceSpans = (document.resourceSpans as JsonObject[])[0]!
+  const scopeSpans = (resourceSpans.scopeSpans as JsonObject[])[0]!
+  const scope = scopeSpans.scope as JsonObject
+  const span = (scopeSpans.spans as JsonObject[])[0]!
+
+  switch (owner) {
+    case 'attribute key':
+      span.attributes = [otlpAttribute(value, { stringValue: 'ok' })]
+      break
+    case 'resource schema URL':
+      resourceSpans.schemaUrl = value
+      break
+    case 'scope schema URL':
+      scopeSpans.schemaUrl = value
+      break
+    case 'scope name':
+      scope.name = value
+      break
+    case 'scope version':
+      scope.version = value
+      break
+    case 'span name':
+      span.name = value
+      break
+    case 'span trace state':
+      span.traceState = value
+      break
+    case 'link trace state':
+      span.links = [{
+        traceId: '3'.repeat(32),
+        spanId: '4'.repeat(16),
+        traceState: value,
+        attributes: [],
+      }]
+      break
+    case 'status message':
+      span.status = { code: 1, message: value }
+      break
+    case 'event name':
+      span.events = [{ timeUnixNano: '101', name: value, attributes: [] }]
+      break
+    case 'unknown-field diagnostic':
+      span[value] = null
+      break
+    default:
+      throw new Error(`unknown retained string owner: ${owner}`)
+  }
+  return document
+}
+
 const expectImportError = (
   run: () => unknown,
   code: RuntimeImportError['code'],
@@ -397,6 +459,36 @@ describe('normalizeOtlpDocuments', () => {
     expect(result.report).toMatchObject({ spans: 1, duplicateSpans: 1, traces: 1 })
   })
 
+  it('coalesces duplicates with the same raw sensitive value', () => {
+    const span = otlpSpan({
+      attributes: [otlpAttribute('authorization', { stringValue: 'Bearer same-secret' })],
+    })
+
+    const result = normalize(traceDocument([span, structuredClone(span)]))
+
+    expect(result.spans).toHaveLength(1)
+    expect(result.report).toMatchObject({ duplicateSpans: 1, redactedAttributes: 2 })
+    expect(JSON.stringify(result)).not.toContain('same-secret')
+  })
+
+  it('rejects duplicates that differ only in a sensitive raw value before redaction', () => {
+    const leftSecret = 'Bearer private-left-secret'
+    const rightSecret = 'Bearer private-right-secret'
+    const left = otlpSpan({ attributes: [otlpAttribute('authorization', { stringValue: leftSecret })] })
+    const right = otlpSpan({ attributes: [otlpAttribute('authorization', { stringValue: rightSecret })] })
+
+    try {
+      normalize(traceDocument([left, right]))
+      throw new Error('expected conflict')
+    } catch (error) {
+      expect(error).toBeInstanceOf(RuntimeImportError)
+      expect(error).toMatchObject({ code: 'conflict' })
+      expect(String(error)).toMatch(/conflicting duplicate span/i)
+      expect(String(error)).not.toContain(leftSecret)
+      expect(String(error)).not.toContain(rightSecret)
+    }
+  })
+
   it('rejects conflicting duplicate span identities without echoing imported values', () => {
     const left = otlpSpan({ name: 'private-left-name' })
     const right = otlpSpan({ name: 'private-right-name' })
@@ -527,15 +619,42 @@ describe('normalizeOtlpDocuments', () => {
       'limit', 'maxAttributeDepth', 3,
     )
 
-    expect(normalize(otlpDocument({ attributes: [otlpAttribute('bytes', { stringValue: '€' })] }), {
+    expect(normalize(compactStringDocument({ attributes: [otlpAttribute('v', { stringValue: '€' })] }), {
       ...baseLimits, maxValueBytes: 3,
     }).spans).toHaveLength(1)
     expectImportError(
-      () => normalize(otlpDocument({ attributes: [otlpAttribute('bytes', { stringValue: '€x' })] }), {
+      () => normalize(compactStringDocument({ attributes: [otlpAttribute('v', { stringValue: '€x' })] }), {
         ...baseLimits, maxValueBytes: 3,
       }),
       'limit', 'maxValueBytes', 4,
     )
+  })
+
+  it.each([
+    'attribute key',
+    'resource schema URL',
+    'scope schema URL',
+    'scope name',
+    'scope version',
+    'span name',
+    'span trace state',
+    'link trace state',
+    'status message',
+    'event name',
+    'unknown-field diagnostic',
+  ])('applies the UTF-8 string cap to each retained %s', (owner) => {
+    const atLimit = normalize(documentWithRetainedString(owner, '€'), { maxValueBytes: 3 })
+    expect(JSON.stringify(atLimit)).toContain('€')
+
+    const secretOverLimit = '€x'
+    try {
+      normalize(documentWithRetainedString(owner, secretOverLimit), { maxValueBytes: 3 })
+      throw new Error('expected retained-string limit failure')
+    } catch (error) {
+      expect(error).toBeInstanceOf(RuntimeImportError)
+      expect(error).toMatchObject({ code: 'limit', limit: 'maxValueBytes', actual: 4 })
+      expect(String(error)).not.toContain(secretOverLimit)
+    }
   })
 
   it('counts semantic limits before duplicate coalescing', () => {

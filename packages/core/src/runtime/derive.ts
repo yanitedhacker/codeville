@@ -1,11 +1,15 @@
-import type {
-  DerivedRuntimeSpan,
-  NormalizedRuntimeInput,
-  RuntimeSpan,
-  RuntimeSpanRelation,
-  RuntimeTrace,
-  RuntimeTraceBundle,
+import {
+  DEFAULT_RUNTIME_IMPORT_LIMITS,
+  RuntimeImportError,
+  type DerivedRuntimeSpan,
+  type NormalizedRuntimeInput,
+  type RuntimeImportOptions,
+  type RuntimeSpan,
+  type RuntimeSpanRelation,
+  type RuntimeTrace,
+  type RuntimeTraceBundle,
 } from './types.js'
+import { assertRuntimeBundleSerializedBytes } from './bundle-size.js'
 
 function compareText(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0
@@ -190,29 +194,60 @@ function hotPath(
   return best?.path.spanIds ?? []
 }
 
-function ancestry(spanId: string, derivedParents: ReadonlyMap<string, string>): string[] {
-  const reversed = [spanId]
+function ancestryLength(spanId: string, derivedParents: ReadonlyMap<string, string>): number {
+  let length = 1
   let current = spanId
   while (derivedParents.has(current)) {
     current = derivedParents.get(current)!
-    reversed.push(current)
+    length += 1
   }
-  return reversed.reverse()
+  return length
 }
 
-function errorPaths(spans: RuntimeSpan[], derivedParents: ReadonlyMap<string, string>): string[][] {
-  return spans
-    .filter((span) => span.status.code === 2)
-    .map((span) => ({ span, path: ancestry(span.spanId, derivedParents) }))
+function ancestry(spanId: string, length: number, derivedParents: ReadonlyMap<string, string>): string[] {
+  const path = new Array<string>(length)
+  let current = spanId
+  for (let index = length - 1; index >= 0; index -= 1) {
+    path[index] = current
+    current = derivedParents.get(current) ?? current
+  }
+  return path
+}
+
+function errorPaths(
+  spans: RuntimeSpan[],
+  derivedParents: ReadonlyMap<string, string>,
+  maxErrorPathIds: number,
+  retainedBefore: number,
+): string[][] {
+  const errors: Array<{ span: RuntimeSpan; length: number }> = []
+  let totalPathIds = retainedBefore
+  for (const span of spans) {
+    if (span.status.code !== 2) continue
+    const length = ancestryLength(span.spanId, derivedParents)
+    totalPathIds += length
+    if (totalPathIds > maxErrorPathIds) {
+      throw RuntimeImportError.limit('maxErrorPathIds', totalPathIds)
+    }
+    errors.push({ span, length })
+  }
+
+  return errors
+    .map(({ span, length }) => ({ span, path: ancestry(span.spanId, length, derivedParents) }))
     .sort((left, right) => compareDecimal(left.span.endTimeUnixNano, right.span.endTimeUnixNano)
       || right.path.length - left.path.length
       || compareSpanIdPaths(left.path, right.path))
     .map(({ path }) => path)
 }
 
-function deriveTrace(spans: RuntimeSpan[]): { trace: RuntimeTrace; spans: DerivedRuntimeSpan[] } {
+function deriveTrace(
+  spans: RuntimeSpan[],
+  maxErrorPathIds: number,
+  retainedErrorPathIds: number,
+): { trace: RuntimeTrace; spans: DerivedRuntimeSpan[]; errorPathIds: number } {
   const graph = deriveGraph(spans)
   const spansById = new Map(spans.map((span) => [span.spanId, span]))
+  const derivedErrorPaths = errorPaths(spans, graph.derivedParents, maxErrorPathIds, retainedErrorPathIds)
   const trace: RuntimeTrace = {
     traceId: spans[0]!.traceId,
     startTimeUnixNano: spans.reduce((minimum, span) => compareDecimal(span.startTimeUnixNano, minimum) < 0 ? span.startTimeUnixNano : minimum, spans[0]!.startTimeUnixNano),
@@ -222,15 +257,25 @@ function deriveTrace(spans: RuntimeSpan[]): { trace: RuntimeTrace; spans: Derive
     orphanSpanIds: graph.orphanSpanIds,
     cycleBreakSpanIds: graph.cycleBreakSpanIds,
     hotPathSpanIds: hotPath(graph.rootSpanIds, spansById, graph.children),
-    errorPaths: errorPaths(spans, graph.derivedParents),
+    errorPaths: derivedErrorPaths,
   }
   return {
     trace,
     spans: spans.map((span) => ({ ...span, relation: graph.relations.get(span.spanId)! })),
+    errorPathIds: derivedErrorPaths.reduce((total, path) => total + path.length, 0),
   }
 }
 
-export function deriveRuntimeTraces(input: NormalizedRuntimeInput): RuntimeTraceBundle {
+export function deriveRuntimeTraces(
+  input: NormalizedRuntimeInput,
+  options: RuntimeImportOptions = {},
+): RuntimeTraceBundle {
+  const limits = { ...DEFAULT_RUNTIME_IMPORT_LIMITS, ...options.limits }
+  for (const value of Object.values(limits)) {
+    if (!Number.isSafeInteger(value) || value < 0) {
+      throw new RuntimeImportError('schema', 'Runtime normalization limits are invalid.')
+    }
+  }
   const sortedSpans = [...input.spans].sort(compareSpans)
   const tracesById = new Map<string, RuntimeSpan[]>()
   for (const span of sortedSpans) {
@@ -241,17 +286,21 @@ export function deriveRuntimeTraces(input: NormalizedRuntimeInput): RuntimeTrace
 
   const traces: RuntimeTrace[] = []
   const spans: DerivedRuntimeSpan[] = []
+  let retainedErrorPathIds = 0
   for (const traceId of [...tracesById.keys()].sort(compareText)) {
-    const derived = deriveTrace(tracesById.get(traceId)!)
+    const derived = deriveTrace(tracesById.get(traceId)!, limits.maxErrorPathIds, retainedErrorPathIds)
     traces.push(derived.trace)
     spans.push(...derived.spans)
+    retainedErrorPathIds += derived.errorPathIds
   }
 
-  return {
+  const bundle: RuntimeTraceBundle = {
     version: 1,
     format: 'otlp-json',
     traces,
     spans,
     report: input.report,
   }
+  assertRuntimeBundleSerializedBytes(bundle, limits.maxSerializedBundleBytes)
+  return bundle
 }

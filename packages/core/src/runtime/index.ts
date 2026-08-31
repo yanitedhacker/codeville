@@ -9,9 +9,13 @@ export function importOtlpTraceJson(
 ): RuntimeTraceBundle {
   const documents = parseOtlpDocuments(text, options)
   const normalized = normalizeOtlpDocuments(documents, options)
-  return deriveRuntimeTraces(normalized)
+  return deriveRuntimeTraces(normalized, options)
 }
 
 export { deriveRuntimeTraces } from './derive.js'
+export {
+  assertRuntimeBundleSerializedBytes,
+  runtimeBundleSerializedBytes,
+} from './bundle-size.js'
 export { correlateRuntimeSources } from './correlate.js'
 export * from './types.js'
