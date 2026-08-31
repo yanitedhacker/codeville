@@ -37,14 +37,22 @@ describe('correlateRuntimeSources', () => {
     const expandedBytes = runtimeBundleSerializedBytes(expanded)
     const options = { limits: { maxSerializedBundleBytes: maximum } }
 
+    let failure: unknown
+    try {
+      correlateRuntimeSources(bundle, atlas, options)
+    } catch (error) {
+      failure = error
+    }
+
     expect(expandedBytes).toBeGreaterThan(maximum)
-    expect(() => correlateRuntimeSources(bundle, atlas, options)).toThrowError(
-      expect.objectContaining({
-        code: 'limit',
-        limit: 'maxSerializedBundleBytes',
-        actual: expandedBytes,
-      }),
-    )
+    expect(failure).toMatchObject({
+      code: 'limit',
+      limit: 'maxSerializedBundleBytes',
+      actual: expect.any(Number),
+    })
+    const measuredBytes = (failure as { actual: number }).actual
+    expect(measuredBytes).toBeGreaterThan(maximum)
+    expect(measuredBytes).toBeLessThanOrEqual(expandedBytes)
     expect(bundle.spans[0]!.source).toBeUndefined()
   })
 

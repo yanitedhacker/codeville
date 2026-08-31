@@ -18,7 +18,7 @@
 - Do not execute or instrument the analyzed repository.
 - Keep static `AtlasLink` evidence and static `Trace one step` behavior unchanged.
 - Keep all runtime timestamps as canonical decimal strings in the public model. Use `BigInt` only for validation and relative calculations.
-- Default limits are 25 MiB input, 8 MiB per JSONL line, 10,000 traces, 50,000 total spans, 20,000 spans per trace, 2,000 resource/scope groups, 128 attributes per owner, 256 events per span, 128 links per span, nesting depth 8, and 16 KiB per string or byte value.
+- Default limits are 25 MiB input, 8 MiB per JSONL line, 10,000 traces, 50,000 total spans, 20,000 spans per trace, 2,000 resource/scope groups, 128 attributes per owner, 256 events per span, 128 links per span, nesting depth 8, 16 KiB per retained owner string or byte value, 1,000,000 total retained error-path IDs, and a 64 MiB serialized runtime bundle.
 - Reject syntax, schema, identifier, time, duplicate-conflict, and limit failures as one whole import. Do not expose a partial replacement bundle.
 - Preserve exact trace and span IDs. Redact the exact sensitive attribute-key set from the design and report the redaction count.
 - Source correlation must use exact normalized paths and an explicit source root. Do not use basename or suffix guessing.
@@ -156,6 +156,8 @@ export interface RuntimeImportLimits {
   maxLinksPerSpan: number
   maxAttributeDepth: number
   maxValueBytes: number
+  maxSerializedBundleBytes: number
+  maxErrorPathIds: number
 }
 
 export const DEFAULT_RUNTIME_IMPORT_LIMITS: Readonly<RuntimeImportLimits> = {
@@ -170,6 +172,8 @@ export const DEFAULT_RUNTIME_IMPORT_LIMITS: Readonly<RuntimeImportLimits> = {
   maxLinksPerSpan: 128,
   maxAttributeDepth: 8,
   maxValueBytes: 16 * 1024,
+  maxSerializedBundleBytes: 64 * 1024 * 1024,
+  maxErrorPathIds: 1_000_000,
 }
 
 export interface RuntimeAttribute {
@@ -283,6 +287,8 @@ Add literal, table-driven tests that name each rejected break:
 - preserve every tagged `AnyValue` variant and accept safe integer JSON numbers only after canonical decimal conversion;
 - redact the exact design-key set in resource, scope, span, event, and link attributes, while preserving the key and counting every redaction;
 - prove success exactly at and rejection at one above `maxTraces`, `maxSpans`, `maxSpansPerTrace`, `maxResourceScopeGroups`, `maxAttributes`, `maxEventsPerSpan`, `maxLinksPerSpan`, `maxAttributeDepth`, and `maxValueBytes`;
+- prove that `maxValueBytes` applies to every retained owner string, including attribute keys, schema URLs, scope names and versions, span names and trace state, link trace state, status messages, event names, and unknown-field diagnostic paths;
+- prove the `maxErrorPathIds` boundary and incremental `maxSerializedBundleBytes` rejection before an over-limit tail is traversed;
 - keep Task 1 tests as the at-limit and over-limit proof for `maxInputBytes` and `maxJsonLineBytes`.
 
 Use hand-derived expected counts. Do not generate expected values with the normalizer under test.
@@ -1128,7 +1134,7 @@ In `docs/architecture.md`, add the separate flow:
 OTLP JSON/JSONL -> parse -> normalize/redact -> derive -> exact correlate -> Runtime Lens -> offline export
 ```
 
-In `docs/security.md`, record the exact default limits, redaction keys, no-network/no-execution rules, hostile trace attacker, raw-input non-retention, CSP, and exact-ID preservation. Keep the existing hostile-repository and static export sections unchanged.
+In `docs/security.md`, record the exact default limits, including the 64 MiB serialized bundle, 1,000,000 total retained error-path IDs, and the retained owner strings covered by `maxValueBytes`. Also record redaction keys, no-network/no-execution rules, hostile trace attacker, raw-input non-retention, CSP, and exact-ID preservation. Keep the existing hostile-repository and static export sections unchanged.
 
 Run exact read-only documentation assertions after editing and record each exit:
 
@@ -1169,7 +1175,7 @@ Import both public fixtures through the browser picker and record that each prod
 - Reduced-motion media state disables runtime animation and transition.
 - The generated Markdown report states that runtime trace data is excluded.
 
-The public fixtures do not contain the hostile script string. Use the passing Task 9 `standalone-html.test.ts` breakout case as the authoritative hostile-string evidence; do not claim a manual fixture check. Record keyboard access, visible focus, native controls, polite status, non-color error labels, and complete text-timeline observations separately. No axe runner is installed, so do not claim an axe or formal WCAG pass.
+The public fixtures do not contain the hostile script string. Use the passing Task 9 `standalone-html.test.ts` breakout case as the authoritative hostile-string evidence; do not claim a manual fixture check. Record keyboard access, visible focus, native controls, polite status, non-color error labels, and complete text-timeline observations separately. The dev-only `axe-core` runner checks the primary Runtime Lens state for axe-detectable WCAG A and AA issues in simulated DOM. It disables `color-contrast` because the simulated DOM does not calculate that rule. Record this as bounded automated axe evidence, not a browser color audit or a complete WCAG pass.
 
 Use one verification-record row per command or browser check:
 

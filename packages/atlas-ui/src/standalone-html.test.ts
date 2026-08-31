@@ -60,14 +60,24 @@ describe('renderStandaloneHtml', () => {
     const rawBytes = new TextEncoder().encode(serialized).byteLength
     const escapedBytes = new TextEncoder().encode(escaped).byteLength
 
+    let failure: unknown
+    try {
+      renderStandaloneHtml(atlas, 'globalThis.rendered=true', '.x{}', runtime, {
+        limits: { maxSerializedBundleBytes: rawBytes },
+      })
+    } catch (error) {
+      failure = error
+    }
+
     expect(escapedBytes).toBeGreaterThan(rawBytes)
-    expect(() => renderStandaloneHtml(atlas, 'globalThis.rendered=true', '.x{}', runtime, {
-      limits: { maxSerializedBundleBytes: rawBytes },
-    })).toThrowError(expect.objectContaining({
+    expect(failure).toMatchObject({
       code: 'limit',
       limit: 'maxSerializedBundleBytes',
-      actual: escapedBytes,
-    }))
+      actual: expect.any(Number),
+    })
+    const measuredBytes = (failure as { actual: number }).actual
+    expect(measuredBytes).toBeGreaterThan(rawBytes)
+    expect(measuredBytes).toBeLessThanOrEqual(escapedBytes)
     expect(renderStandaloneHtml(atlas, 'globalThis.rendered=true', '.x{}', runtime, {
       limits: { maxSerializedBundleBytes: escapedBytes },
     })).toContain('window.__CODEVILLE_RUNTIME__=')

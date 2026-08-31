@@ -104,9 +104,11 @@ The pure importer accepts configurable limits. Browser and CLI entry points use 
 | Events per span | 256 |
 | Links per span | 128 |
 | Attribute nesting depth | 8 |
-| One string or byte value | 16 KiB |
+| Each retained owner string or byte value | 16 KiB |
+| Total retained error-path IDs | 1,000,000 |
+| Serialized runtime bundle | 64 MiB |
 
-An input that exceeds a limit fails before a runtime bundle is exposed. The error names the failed limit and its measured count. It does not echo untrusted values.
+`maxValueBytes` applies to attribute keys, schema URLs, scope names and versions, span names and trace state, link trace state, status messages, event names, unknown-field diagnostic paths, and each retained string or byte attribute leaf. An input that exceeds a limit fails before a runtime bundle is exposed. The serialized-bundle walker checks the byte limit incrementally and stops at the first measured prefix above the limit. The error names the failed limit and its measured count. It does not echo untrusted values.
 
 ## Core data model
 

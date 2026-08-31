@@ -44,7 +44,11 @@ Browser and CLI trace import use these default limits:
 | Events per span | 256 |
 | Links per span | 128 |
 | Attribute depth | 8 |
-| One string or bytes leaf | 16 KiB |
+| Each retained owner string or bytes leaf | 16 KiB |
+| Total retained error-path IDs | 1,000,000 |
+| Serialized runtime bundle | 64 MiB |
+
+`maxValueBytes` applies to every retained owner string: attribute keys, schema URLs, scope names and versions, span names and trace state, link trace state, status messages, event names, and unknown-field diagnostic paths. It also applies to every retained string or byte attribute leaf. The serialized-bundle limit is checked incrementally during derivation, after source correlation, and after script-safe escaping for standalone export. Codeville rejects the first measured byte prefix above the limit instead of measuring the rest of an over-limit bundle.
 
 Before Codeville exposes a normalized bundle, it matches attribute keys without case and redacts values for exactly these 15 keys:
 

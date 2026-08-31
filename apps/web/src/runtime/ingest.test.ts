@@ -143,12 +143,22 @@ describe('ingestRuntimeFile', () => {
     const expandedBytes = runtimeBundleSerializedBytes(correlateRuntimeSources(imported, atlas))
     const options = { limits: { maxSerializedBundleBytes: maximum } }
 
+    let failure: unknown
+    try {
+      await ingestRuntimeFile(localFile('minimal-otlp.json', bytes).file, atlas, options)
+    } catch (error) {
+      failure = error
+    }
+
     expect(expandedBytes).toBeGreaterThan(maximum)
-    await expect(ingestRuntimeFile(localFile('minimal-otlp.json', bytes).file, atlas, options)).rejects.toMatchObject({
+    expect(failure).toMatchObject({
       code: 'limit',
       limit: 'maxSerializedBundleBytes',
-      actual: expandedBytes,
+      actual: expect.any(Number),
     })
+    const measuredBytes = (failure as { actual: number }).actual
+    expect(measuredBytes).toBeGreaterThan(maximum)
+    expect(measuredBytes).toBeLessThanOrEqual(expandedBytes)
   })
 
   it('detects a storage property read before it can bypass the no-I/O boundary', () => {
