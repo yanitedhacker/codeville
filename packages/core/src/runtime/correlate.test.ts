@@ -3,7 +3,7 @@ import { buildAtlas } from '../atlas.js'
 import type { Atlas } from '../types.js'
 import { correlateRuntimeSources } from './correlate.js'
 import { otlpAttribute, otlpDocument } from './fixtures.js'
-import { importOtlpTraceJson } from './index.js'
+import { importOtlpTraceJson, runtimeBundleSerializedBytes } from './index.js'
 import type { RuntimeAttribute, RuntimeTraceBundle } from './types.js'
 
 function atlasWithFiles(paths: string[]): Atlas {
@@ -29,6 +29,25 @@ function sourceAttributes(bundle: RuntimeTraceBundle): RuntimeAttribute[] {
 }
 
 describe('correlateRuntimeSources', () => {
+  it('rejects source-match amplification above the final serialized bundle limit', () => {
+    const atlas = atlasWithFiles(['src/api.ts'])
+    const bundle = bundleWithAttributes([sourcePath('src/api.ts')])
+    const maximum = runtimeBundleSerializedBytes(bundle)
+    const expanded = correlateRuntimeSources(bundle, atlas)
+    const expandedBytes = runtimeBundleSerializedBytes(expanded)
+    const options = { limits: { maxSerializedBundleBytes: maximum } }
+
+    expect(expandedBytes).toBeGreaterThan(maximum)
+    expect(() => correlateRuntimeSources(bundle, atlas, options)).toThrowError(
+      expect.objectContaining({
+        code: 'limit',
+        limit: 'maxSerializedBundleBytes',
+        actual: expandedBytes,
+      }),
+    )
+    expect(bundle.spans[0]!.source).toBeUndefined()
+  })
+
   it('matches only an exact normalized POSIX path under the explicit source root', () => {
     const atlas = atlasWithFiles(['src/api.ts', 'other/api.ts'])
     const matched = correlateRuntimeSources(bundleWithAttributes([sourcePath('/work//app/./src/api.ts')]), atlas, {

@@ -1,13 +1,15 @@
 import type { Atlas } from '../types.js'
-import type {
-  DerivedRuntimeSpan,
-  RuntimeAttribute,
-  RuntimeCompatibilityWarning,
-  RuntimeSourceMatch,
-  RuntimeSourceOptions,
-  RuntimeTraceBundle,
-  RuntimeValue,
+import {
+  DEFAULT_RUNTIME_IMPORT_LIMITS,
+  type DerivedRuntimeSpan,
+  type RuntimeAttribute,
+  type RuntimeCorrelationOptions,
+  type RuntimeCompatibilityWarning,
+  type RuntimeSourceMatch,
+  type RuntimeTraceBundle,
+  type RuntimeValue,
 } from './types.js'
+import { assertRuntimeBundleSerializedBytes } from './bundle-size.js'
 
 type DeprecatedSourceAttribute = RuntimeCompatibilityWarning['attribute']
 
@@ -36,7 +38,7 @@ interface NormalizedPath {
 export function correlateRuntimeSources(
   bundle: RuntimeTraceBundle,
   atlas: Atlas,
-  options: RuntimeSourceOptions = {},
+  options: RuntimeCorrelationOptions = {},
 ): RuntimeTraceBundle {
   const filesByPath = visibleFilesByPath(atlas)
   const sourceRoot = options.sourceRoot === undefined ? undefined : normalizePath(options.sourceRoot)
@@ -55,7 +57,7 @@ export function correlateRuntimeSources(
     return match === undefined ? evidence : { ...evidence, source: match }
   })
 
-  return {
+  const correlated: RuntimeTraceBundle = {
     ...bundle,
     spans,
     report: {
@@ -64,6 +66,12 @@ export function correlateRuntimeSources(
       compatibilityWarnings: sourceWarnings(usedDeprecated),
     },
   }
+  assertRuntimeBundleSerializedBytes(
+    correlated,
+    options.limits?.maxSerializedBundleBytes
+      ?? DEFAULT_RUNTIME_IMPORT_LIMITS.maxSerializedBundleBytes,
+  )
+  return correlated
 }
 
 function sourceFields(attributes: RuntimeAttribute[]): SourceFields {

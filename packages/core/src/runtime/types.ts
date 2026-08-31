@@ -180,6 +180,10 @@ export interface RuntimeSourceOptions {
   readonly sourceRoot?: string
 }
 
+export interface RuntimeCorrelationOptions extends RuntimeSourceOptions {
+  readonly limits?: Pick<RuntimeImportLimits, 'maxSerializedBundleBytes'>
+}
+
 export interface RuntimeCompatibilityWarning {
   code: 'deprecated-runtime-source-attribute'
   attribute: 'code.filepath' | 'code.function' | 'code.lineno'

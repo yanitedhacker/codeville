@@ -1,8 +1,11 @@
 import { readFile } from 'node:fs/promises'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
+  correlateRuntimeSources,
   DEFAULT_RUNTIME_IMPORT_LIMITS,
+  importOtlpTraceJson,
   RuntimeImportError,
+  runtimeBundleSerializedBytes,
   type Atlas,
 } from '@codeville/core'
 import { ingestRuntimeFile } from './ingest.js'
@@ -129,6 +132,25 @@ afterEach(() => {
 })
 
 describe('ingestRuntimeFile', () => {
+  it('rejects a correlated bundle that exceeds the final serialized budget before UI state', async () => {
+    const text = await readFile(
+      new URL('../../../../fixtures/runtime/minimal-otlp.json', import.meta.url),
+      'utf8',
+    )
+    const bytes = new TextEncoder().encode(text)
+    const imported = importOtlpTraceJson(text)
+    const maximum = runtimeBundleSerializedBytes(imported)
+    const expandedBytes = runtimeBundleSerializedBytes(correlateRuntimeSources(imported, atlas))
+    const options = { limits: { maxSerializedBundleBytes: maximum } }
+
+    expect(expandedBytes).toBeGreaterThan(maximum)
+    await expect(ingestRuntimeFile(localFile('minimal-otlp.json', bytes).file, atlas, options)).rejects.toMatchObject({
+      code: 'limit',
+      limit: 'maxSerializedBundleBytes',
+      actual: expandedBytes,
+    })
+  })
+
   it('detects a storage property read before it can bypass the no-I/O boundary', () => {
     const io = installIoDoubles()
 

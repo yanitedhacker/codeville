@@ -4,14 +4,14 @@ import {
   importOtlpTraceJson,
   RuntimeImportError,
   type Atlas,
-  type RuntimeSourceOptions,
+  type RuntimeCorrelationOptions,
   type RuntimeTraceBundle,
 } from '@codeville/core'
 
 export async function ingestRuntimeFile(
   file: File,
   atlas: Atlas,
-  options: RuntimeSourceOptions = {},
+  options: RuntimeCorrelationOptions = {},
 ): Promise<RuntimeTraceBundle> {
   if (file.size > DEFAULT_RUNTIME_IMPORT_LIMITS.maxInputBytes) {
     throw RuntimeImportError.limit('maxInputBytes', file.size)
@@ -25,6 +25,6 @@ export async function ingestRuntimeFile(
     throw new RuntimeImportError('syntax', 'Runtime trace is not valid UTF-8.')
   }
 
-  const imported = importOtlpTraceJson(text)
+  const imported = importOtlpTraceJson(text, { limits: options.limits })
   return correlateRuntimeSources(imported, atlas, options)
 }
