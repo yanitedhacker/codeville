@@ -35,7 +35,7 @@ These results are not the product verdict. They predate corrected HEAD `ced8fb41
 | `rg -n -F 'Runtime trace import and export' docs/security.md` | Exit 0; PASS | One matching heading at security line 29. | N/A | Documentation assertion only. |
 | `rg -n -F 'minimal-otlp.jsonl' fixtures/README.md` | Exit 0; PASS | Two matching lines at fixture README lines 5 and 13. | N/A | Documentation assertion only. |
 | `pnpm test -- packages/core/src/runtime/derive.test.ts` with approved local IPC | Exit 0; PASS | 49/49 test files; 457/457 tests. | 0 | Local Node/Vitest evidence. The repository script ran the full configured suite; it is not a browser or field result. |
-| `pnpm test -- packages/atlas-ui/src/standalone-html.test.ts packages/atlas-ui/src/standalone.test.tsx packages/cli/src/args.test.ts apps/web/src/App.test.tsx` with approved local IPC | Exit 0; PASS | 49/49 test files; 457/457 tests. | 0 | Local Node/Vitest automated export, CLI, web-state, and integration evidence. It does not replace `file://` browser checks. |
+| `pnpm test -- packages/atlas-ui/src/standalone-html.test.ts packages/atlas-ui/src/standalone.test.tsx packages/cli/src/args.test.ts apps/web/src/App.test.tsx` with approved local IPC | Exit 0; PASS | 49/49 test files; 457/457 tests. | 0 | Local Node/Vitest automated export, CLI, component-state, and importer-boundary evidence. It does not replace `file://` browser checks. |
 | `pnpm test` with approved local IPC | Exit 0; PASS | 49/49 test files; 457/457 tests. | 0 | Full local Node/Vitest suite. No field, target-execution, or browser qualification claim. |
 | `pnpm typecheck` | Exit 0; PASS | TypeScript `tsc -p tsconfig.json --noEmit` completed with no diagnostic output. | N/A | Static type analysis only. |
 | `pnpm -F @codeville/atlas-ui build` | Exit 0; PASS | Vite transformed 28 modules; CSS 15.31 kB, gzip 3.34 kB; JS 89.32 kB, gzip 29.13 kB. | N/A | Local production-bundle build only. |
@@ -45,9 +45,9 @@ These results are not the product verdict. They predate corrected HEAD `ced8fb41
 | `pnpm realrepo .` with approved local IPC | Exit 0; PASS | 120 source files; 259 internal; 77 external; 43 system; 2 unresolved; 0 ignored; 8 external packages. | N/A | The repository analysis completed. Exit 0 does not prove a quality threshold. |
 | `pnpm atlas . --trace fixtures/runtime/minimal-otlp.json --trace-source-root "$PWD" --report /tmp/codeville-runtime-report.md -o /tmp/codeville-runtime-atlas.html` with approved local IPC | Exit 0; PASS | Read 126 files; atlas 129 nodes, 333 links, 8 packages; runtime 2 traces, 3 spans; wrote the Markdown and JSON-input HTML artifacts. | 0 | Local import of a synthetic public fixture. It is not capture or target execution. |
 | `pnpm atlas . --trace fixtures/runtime/minimal-otlp.jsonl --trace-source-root "$PWD" -o /tmp/codeville-runtime-atlas-jsonl.html` with approved local IPC | Exit 0; PASS | Read 126 files; atlas 129 nodes, 333 links, 8 packages; runtime 2 traces, 3 spans; wrote the JSONL-input HTML artifact. | 0 | Local import of a synthetic public fixture. It is not capture or target execution. |
-| JSON artifact source-match extraction | Exit 0; PASS | 1 `kind:"file"` node at `packages/core/src/runtime/index.ts`; 1 matched span, ID `0000000000000001`; `unmatchedSourceSpans=0`; 1 document, 2 traces, 3 spans, 1 error, 1 redaction. | N/A | Serialized payload inspection. Browser handoff remains separate. |
-| JSONL artifact source-match extraction | Exit 0; PASS | 1 `kind:"file"` node at `packages/core/src/runtime/index.ts`; 1 matched span, ID `0000000000000001`; `unmatchedSourceSpans=0`; 2 documents, 2 traces, 3 spans, 1 error, 1 redaction. | N/A | Serialized payload inspection. Browser handoff remains separate. |
-| Normalized JSON versus JSONL bundle comparison | Exit 0; PASS | `tracesEqual=true`; `spansEqual=true`; JSON documents 1; JSONL documents 2; 2 traces; 3 spans; 1 error; 1 redacted attribute. | N/A | Serialization equality for normalized traces and spans only. |
+| `[A1]` JSON artifact source-match extraction | Exit 0; PASS | 1 `kind:"file"` node at `packages/core/src/runtime/index.ts`; 1 matched source span with `traceId=11111111111111111111111111111111, spanId=0000000000000001`; `unmatchedSourceSpans=0`; 1 document, 2 traces, 3 spans, 1 error, 1 redaction. | N/A | Serialized payload inspection. Browser handoff remains separate. |
+| `[A2]` JSONL artifact source-match extraction | Exit 0; PASS | 1 `kind:"file"` node at `packages/core/src/runtime/index.ts`; 1 matched source span with `traceId=11111111111111111111111111111111, spanId=0000000000000001`; `unmatchedSourceSpans=0`; 2 documents, 2 traces, 3 spans, 1 error, 1 redaction. | N/A | Serialized payload inspection. Browser handoff remains separate. |
+| `[A3]` Normalized JSON versus JSONL bundle comparison | Exit 0; PASS | `tracesEqual=true`; `spansEqual=true`; JSON documents 1; JSONL documents 2; 2 traces; 3 spans; 1 error; 1 redacted attribute. | N/A | Serialization equality for normalized traces and spans only. |
 | `test -s /tmp/codeville-runtime-atlas.html` | Exit 0; PASS | Non-empty file. | N/A | File existence and non-zero size only. |
 | `test -s /tmp/codeville-runtime-atlas-jsonl.html` | Exit 0; PASS | Non-empty file. | N/A | File existence and non-zero size only. |
 | `test -s /tmp/codeville-runtime-report.md` | Exit 0; PASS | Non-empty file. | N/A | File existence and non-zero size only. |
@@ -58,10 +58,10 @@ These results are not the product verdict. They predate corrected HEAD `ced8fb41
 | `rg -n 'fixture-secret' /tmp/codeville-runtime-atlas.html` | Exit 1; PASS expected absence | No matches. Exit 1 is the expected `rg` absence result and is not converted to exit 0. | N/A | Proves the public fixture secret string is absent from this file. |
 | `rg -n 'fixture-secret' /tmp/codeville-runtime-atlas-jsonl.html` | Exit 1; PASS expected absence | No matches. Exit 1 is the expected `rg` absence result and is not converted to exit 0. | N/A | Proves the public fixture secret string is absent from this file. |
 | `rg -n -F 'Runtime trace data is not included in this static-source Markdown report.' /tmp/codeville-runtime-report.md` | Exit 0; PASS | One exact match at line 516. | N/A | Markdown exclusion statement only. Runtime data is not treated as Markdown evidence. |
-| Active external-resource and remote CSS scan of `/tmp/codeville-runtime-atlas.html` | Exit 0; PASS | 0 active external-resource tags; 0 remote CSS references. | N/A | Static HTML text scan. Inert imported URL-like text is not classified as active. Network behavior remains a browser check. |
-| Active external-resource and remote CSS scan of `/tmp/codeville-runtime-atlas-jsonl.html` | Exit 0; PASS | 0 active external-resource tags; 0 remote CSS references. | N/A | Static HTML text scan. Inert imported URL-like text is not classified as active. Network behavior remains a browser check. |
-| Exact CSP search in `/tmp/codeville-runtime-atlas.html` | Exit 0; PASS | One meta CSP at line 6: `default-src 'none'; connect-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; font-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'`. | N/A | Static CSP presence only. |
-| Exact CSP search in `/tmp/codeville-runtime-atlas-jsonl.html` | Exit 0; PASS | One meta CSP at line 6 with the same exact policy. | N/A | Static CSP presence only. |
+| `[A4]` Active external-resource and remote CSS scan of `/tmp/codeville-runtime-atlas.html` | Exit 0; PASS | 0 active external-resource tags; 0 remote CSS references. | N/A | Static HTML text scan. Inert imported URL-like text is not classified as active. Network behavior remains a browser check. |
+| `[A5]` Active external-resource and remote CSS scan of `/tmp/codeville-runtime-atlas-jsonl.html` | Exit 0; PASS | 0 active external-resource tags; 0 remote CSS references. | N/A | Static HTML text scan. Inert imported URL-like text is not classified as active. Network behavior remains a browser check. |
+| `[A6]` Exact CSP search in `/tmp/codeville-runtime-atlas.html` | Exit 0; PASS | One meta CSP at line 6: `default-src 'none'; connect-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; font-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'`. | N/A | Static CSP presence only. |
+| `[A7]` Exact CSP search in `/tmp/codeville-runtime-atlas-jsonl.html` | Exit 0; PASS | One meta CSP at line 6 with the same exact policy. | N/A | Static CSP presence only. |
 | `stat -f '%z %N' /tmp/codeville-runtime-atlas.html` | Exit 0; PASS | 457800 bytes. | N/A | Local file metadata. |
 | `stat -f '%z %N' /tmp/codeville-runtime-atlas-jsonl.html` | Exit 0; PASS | 457800 bytes. | N/A | Local file metadata. |
 | `stat -f '%z %N' /tmp/codeville-runtime-report.md` | Exit 0; PASS | 57343 bytes. | N/A | Local file metadata. |
@@ -71,14 +71,60 @@ These results are not the product verdict. They predate corrected HEAD `ced8fb41
 | `git diff --check` | Exit 0; PASS | No whitespace errors. | N/A | Final pre-commit hygiene after the controller browser results were recorded. |
 | `git status --short --branch` | Exit 0; PASS | Branch plus five Task 10 documentation paths: three modified and two untracked. | N/A | Final pre-commit inventory. |
 
+### Exact literal artifact commands
+
+The `[A1]` through `[A7]` labels in the command table refer to these exact commands. Each command was rerun against the unchanged artifact hashes during the documentation correction.
+
+`[A1]` JSON artifact source-match extraction:
+
+```bash
+node -e 'const fs=require("node:fs"); const html=fs.readFileSync("/tmp/codeville-runtime-atlas.html","utf8"); const atlasMatch=/window\.__CODEVILLE_ATLAS__=(.*?)<\/script>/s.exec(html); const runtimeMatch=/window\.__CODEVILLE_RUNTIME__=(.*?)<\/script>/s.exec(html); if(!atlasMatch||!runtimeMatch) process.exit(2); const atlas=JSON.parse(atlasMatch[1]); const runtime=JSON.parse(runtimeMatch[1]); const nodes=atlas.nodes.filter((node)=>node.kind==="file"&&node.path==="packages/core/src/runtime/index.ts"); const matched=runtime.spans.filter((span)=>span.source?.path==="packages/core/src/runtime/index.ts"); const result={fileNodes:nodes.length,fileNodeKinds:nodes.map((node)=>node.kind),matchedSourceSpans:matched.length,matchedSourceIdentities:matched.map((span)=>({traceId:span.traceId,spanId:span.spanId})),unmatchedSourceSpans:runtime.report.unmatchedSourceSpans,documents:runtime.report.documents,traces:runtime.traces.length,spans:runtime.spans.length,redactedAttributes:runtime.report.redactedAttributes,errors:runtime.spans.filter((span)=>span.status.code===2).length}; console.log(JSON.stringify(result)); if(nodes.length!==1||matched.length!==1||runtime.report.unmatchedSourceSpans!==0) process.exit(1)'
+```
+
+`[A2]` JSONL artifact source-match extraction:
+
+```bash
+node -e 'const fs=require("node:fs"); const html=fs.readFileSync("/tmp/codeville-runtime-atlas-jsonl.html","utf8"); const atlasMatch=/window\.__CODEVILLE_ATLAS__=(.*?)<\/script>/s.exec(html); const runtimeMatch=/window\.__CODEVILLE_RUNTIME__=(.*?)<\/script>/s.exec(html); if(!atlasMatch||!runtimeMatch) process.exit(2); const atlas=JSON.parse(atlasMatch[1]); const runtime=JSON.parse(runtimeMatch[1]); const nodes=atlas.nodes.filter((node)=>node.kind==="file"&&node.path==="packages/core/src/runtime/index.ts"); const matched=runtime.spans.filter((span)=>span.source?.path==="packages/core/src/runtime/index.ts"); const result={fileNodes:nodes.length,fileNodeKinds:nodes.map((node)=>node.kind),matchedSourceSpans:matched.length,matchedSourceIdentities:matched.map((span)=>({traceId:span.traceId,spanId:span.spanId})),unmatchedSourceSpans:runtime.report.unmatchedSourceSpans,documents:runtime.report.documents,traces:runtime.traces.length,spans:runtime.spans.length,redactedAttributes:runtime.report.redactedAttributes,errors:runtime.spans.filter((span)=>span.status.code===2).length}; console.log(JSON.stringify(result)); if(nodes.length!==1||matched.length!==1||runtime.report.unmatchedSourceSpans!==0) process.exit(1)'
+```
+
+`[A3]` normalized JSON versus JSONL comparison:
+
+```bash
+node -e 'const fs=require("node:fs"); const read=(path)=>{const html=fs.readFileSync(path,"utf8"); const m=/window\.__CODEVILLE_RUNTIME__=(.*?)<\/script>/s.exec(html); if(!m) process.exit(2); return JSON.parse(m[1])}; const json=read("/tmp/codeville-runtime-atlas.html"); const jsonl=read("/tmp/codeville-runtime-atlas-jsonl.html"); const tracesEqual=JSON.stringify(json.traces)===JSON.stringify(jsonl.traces); const spansEqual=JSON.stringify(json.spans)===JSON.stringify(jsonl.spans); console.log(JSON.stringify({tracesEqual,spansEqual,jsonDocuments:json.report.documents,jsonlDocuments:jsonl.report.documents,traces:json.traces.length,spans:json.spans.length,errors:json.spans.filter((span)=>span.status.code===2).length,redactedAttributes:json.report.redactedAttributes})); if(!tracesEqual||!spansEqual) process.exit(1)'
+```
+
+`[A4]` JSON HTML active-resource and remote CSS scan:
+
+```bash
+node -e 'const fs=require("node:fs"); const html=fs.readFileSync("/tmp/codeville-runtime-atlas.html","utf8"); const styles=[...html.matchAll(/<style\b[^>]*>(.*?)<\/style\s*>/gis)].map((m)=>m[1]||"").join("\n"); const markup=html.replace(/(<script\b[^>]*>).*?(<\/script\s*>)/gis,"$1$2").replace(/(<style\b[^>]*>).*?(<\/style\s*>)/gis,"$1$2"); const tags=markup.match(/<[A-Za-z][^>]*>/g)||[]; const activeTags=tags.filter((tag)=>(/<script\b/i.test(tag)&&/\bsrc\s*=/i.test(tag))||(/<link\b/i.test(tag)&&/\bhref\s*=/i.test(tag))||(/<(?:img|iframe|frame|source)\b/i.test(tag)&&/\b(?:src|srcset)\s*=\s*(?:["\x27]\s*)?(?:https?:)?\/\//i.test(tag))); const remoteCss=[/@import\s+(?:url\s*\()?\s*["\x27]?(?:https?:)?\/\//gi,/url\(\s*["\x27]?(?:https?:)?\/\//gi].flatMap((pattern)=>styles.match(pattern)||[]); console.log(JSON.stringify({activeExternalResourceTags:activeTags.length,remoteCssReferences:remoteCss.length})); if(activeTags.length||remoteCss.length) process.exit(1)'
+```
+
+`[A5]` JSONL HTML active-resource and remote CSS scan:
+
+```bash
+node -e 'const fs=require("node:fs"); const html=fs.readFileSync("/tmp/codeville-runtime-atlas-jsonl.html","utf8"); const styles=[...html.matchAll(/<style\b[^>]*>(.*?)<\/style\s*>/gis)].map((m)=>m[1]||"").join("\n"); const markup=html.replace(/(<script\b[^>]*>).*?(<\/script\s*>)/gis,"$1$2").replace(/(<style\b[^>]*>).*?(<\/style\s*>)/gis,"$1$2"); const tags=markup.match(/<[A-Za-z][^>]*>/g)||[]; const activeTags=tags.filter((tag)=>(/<script\b/i.test(tag)&&/\bsrc\s*=/i.test(tag))||(/<link\b/i.test(tag)&&/\bhref\s*=/i.test(tag))||(/<(?:img|iframe|frame|source)\b/i.test(tag)&&/\b(?:src|srcset)\s*=\s*(?:["\x27]\s*)?(?:https?:)?\/\//i.test(tag))); const remoteCss=[/@import\s+(?:url\s*\()?\s*["\x27]?(?:https?:)?\/\//gi,/url\(\s*["\x27]?(?:https?:)?\/\//gi].flatMap((pattern)=>styles.match(pattern)||[]); console.log(JSON.stringify({activeExternalResourceTags:activeTags.length,remoteCssReferences:remoteCss.length})); if(activeTags.length||remoteCss.length) process.exit(1)'
+```
+
+`[A6]` JSON HTML exact CSP search:
+
+```bash
+rg -n -F "default-src 'none'; connect-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; font-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'" /tmp/codeville-runtime-atlas.html
+```
+
+`[A7]` JSONL HTML exact CSP search:
+
+```bash
+rg -n -F "default-src 'none'; connect-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; font-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'" /tmp/codeville-runtime-atlas-jsonl.html
+```
+
 The Task 9 `packages/atlas-ui/src/standalone-html.test.ts` breakout test is the authoritative hostile imported script-text evidence. The public fixtures do not contain that hostile string, so this record does not claim a manual hostile-string fixture check.
 
 ## Artifact manifest
 
 | Path | Size | SHA-256 | Runtime result | Redaction | Documents |
 | --- | ---: | --- | --- | --- | ---: |
-| `/tmp/codeville-runtime-atlas.html` | 457800 bytes | `e77095a9103bbbe3ccfb22c458b301a8ebc9bc0c4af8534f862a8d397996ca92` | 2 traces; 3 spans; 1 recorded error; 1 exact matched source span; 0 unmatched source spans | 1 redacted attribute; `fixture-secret` absent | 1 |
-| `/tmp/codeville-runtime-atlas-jsonl.html` | 457800 bytes | `b83c6c9bacb9983996005d0140c6dda85653c10ffb28cf329cc5c08d3989b61e` | 2 traces; 3 spans; 1 recorded error; 1 exact matched source span; 0 unmatched source spans | 1 redacted attribute; `fixture-secret` absent | 2 |
+| `/tmp/codeville-runtime-atlas.html` | 457800 bytes | `e77095a9103bbbe3ccfb22c458b301a8ebc9bc0c4af8534f862a8d397996ca92` | 2 traces; 3 spans; 1 recorded error; 1 exact matched source span with `traceId=11111111111111111111111111111111, spanId=0000000000000001`; 0 unmatched source spans | 1 redacted attribute; `fixture-secret` absent | 1 |
+| `/tmp/codeville-runtime-atlas-jsonl.html` | 457800 bytes | `b83c6c9bacb9983996005d0140c6dda85653c10ffb28cf329cc5c08d3989b61e` | 2 traces; 3 spans; 1 recorded error; 1 exact matched source span with `traceId=11111111111111111111111111111111, spanId=0000000000000001`; 0 unmatched source spans | 1 redacted attribute; `fixture-secret` absent | 2 |
 | `/tmp/codeville-runtime-report.md` | 57343 bytes | `10541db34cdb528cee44fa4818f82ac6b2948de854b3f2878081b497b06b8177` | Runtime trace data excluded by the exact statement at line 516 | Runtime input excluded | N/A |
 
 The JSON and JSONL artifacts have equal normalized `traces` and `spans`. Their whole-file hashes differ because each Atlas records a different generation timestamp and each runtime report records its input document count.
@@ -101,7 +147,7 @@ The exact source-handoff browser check used an explicitly separate minimal fixtu
 | Browser picker import of `fixtures/runtime/minimal-otlp.json` | PASS | Runtime Lens opened. Trace `11111111111111111111111111111111` had 2 spans, 300 ns, 1 service, and 1 error. Trace `22222222222222222222222222222222` had 1 span, 200 ns, 1 service, and 0 errors. Completeness showed 3 unsampled spans and 1 redaction. | Web-app import of synthetic public data; not capture or target execution. |
 | Browser picker import of `fixtures/runtime/minimal-otlp.jsonl` | PASS | Same two trace IDs, selected-trace span counts, durations, services, errors, call tree, hot path, error path, and text timelines as JSON. Browser snapshots were consistent with the command-level equality result. | Web-app import of synthetic public data; not capture or target execution. |
 | JSON picker redaction and recorded evidence display | PASS | `authorization` displayed only as `redacted`; the exact recorded `code.file.path` remained visible. | Sanitized normalized display; no raw-secret or execution claim. |
-| Automated App import-time guard contract | PASS | The passing App guard test covers `fetch`, XHR, WebSocket, beacon, `localStorage`, `sessionStorage`, and Worker for import. | Bounded automated API list only; not every browser persistence API and not a manual network log. |
+| Automated importer-boundary guard | PASS | `apps/web/src/runtime/ingest.test.ts` tests `ingestRuntimeFile` directly and guards `fetch`, XHR, WebSocket, beacon, `localStorage`, `sessionStorage`, and Worker. `apps/web/src/App.test.tsx` mocks the importer. | This is neither an App/framework integration test nor a manual network log. It is a bounded automated API list, not every browser persistence API. |
 | Timeline, call tree, hot path, error path, and details selection synchronization | PASS | Selected span `0000000000000002` appeared pressed in call tree, hot path, and error ancestry. Details showed its parent, exact timestamps, 200 ns, status 2 with explicit `error`, and `fixture error`. | Same selected imported observation. Hot path is not causal proof; error path is not root-cause proof. |
 | Complete selected-trace text timeline | PASS | The text timeline showed every selected-trace span for JSON and JSONL. | DOM alternative for selected-trace canvas facts. |
 | Runtime mode and clear flow | PASS | `Return to Static Atlas` -> `Runtime Lens` -> `Clear runtime data` passed. After clear, the static export label returned and the Runtime Lens control disappeared. | Web-app state flow only. |
@@ -113,11 +159,11 @@ The exact source-handoff browser check used an explicitly separate minimal fixtu
 | Accessibility tree and native controls | PASS | Regions, headings, native buttons, selects, spinbutton, checkbox, tabs, labels, text timeline, and live status were exposed in the accessibility snapshot. | Browser accessibility-tree observation; not a formal WCAG audit. |
 | Polite status announcements | PASS | Polite `status` text updated. | Live-status browser observation. |
 | Non-color error labels | PASS | Errors had explicit `error` text and status code 2, not color alone. | Textual error-state evidence. |
-| Exact source handoff in the web app using `/tmp/codeville-browser-source-repo` | PASS | Search found exactly one `kind:"file"` node. JSON import showed `exact source: packages/core/src/runtime/index.ts`, one Exact source match panel, and no unmatched-source notice. `Open matched source` moved to Static Atlas, selected `index.ts`, showed the exact inspector path, and showed source excerpt line 1. | Proves browser handoff with a separate minimal source fixture. It is not direct file-artifact execution. Fresh artifact extraction separately proves the file and matched span in both HTML files. |
+| Exact source handoff in the web app using `/tmp/codeville-browser-source-repo` | PASS | Search found exactly one `kind:"file"` node. JSON import showed `exact source: packages/core/src/runtime/index.ts` for `traceId=11111111111111111111111111111111, spanId=0000000000000001`, one Exact source match panel, and no unmatched-source notice. `Open matched source` moved to Static Atlas, selected `index.ts`, showed the exact inspector path, and showed source excerpt line 1. | Proves browser handoff with a separate minimal source fixture. It is not direct file-artifact execution. Fresh artifact extraction separately proves the same full matched identity in both HTML files. |
 | Direct `file:///tmp/codeville-runtime-atlas.html` execution | NOT_RUN | Codex Browser rejected `file://` under its URL security policy and explicitly prohibited a workaround, raw CDP, alternate browser, or local-server substitution. | Direct generated-file rendering is unavailable and is not marked PASS. |
 | Direct `file:///tmp/codeville-runtime-atlas-jsonl.html` execution | NOT_RUN | Same Codex Browser `file://` policy restriction. | Direct generated-file rendering is unavailable and is not marked PASS. |
 | Direct file artifacts: Runtime Lens, synchronized views, source handoff, text timeline, desktop, 860px, 390px, target sizes, and Markdown file workflow | NOT_RUN | The two generated HTML files could not execute through `file://` in the available Browser. | Static payload, source-match, CSP, resource, size, hash, and Markdown checks remain separate PASS evidence. |
-| Manual network-request log | NOT_RUN | The in-app Browser exposes no `network` capability, and page performance APIs are unavailable in its read-only evaluator. | Automated App guards and static active-resource/CSS scans passed separately; neither is broadened into a manual network PASS. |
+| Manual network-request log | NOT_RUN | The in-app Browser exposes no `network` capability, and page performance APIs are unavailable in its read-only evaluator. | Automated importer-boundary guards and static active-resource/CSS scans passed separately; neither is broadened into a manual network PASS. |
 | Manual reduced-motion emulation | NOT_RUN | The Browser exposes viewport override only, not media emulation. | The separate `runtime-style.test.ts` automated CSS contract passed in the 457-test suite; no manual browser PASS is claimed. |
 | Manual keyboard traversal | NOT_RUN | Real browser Tab automation kept focus on the same native Attributes tab, so traversal was not proven. | Visible focus and native-control/accessibility-tree checks passed separately. Automated keyboard contracts remain separate. |
 | Formal axe or WCAG automation | NOT_RUN | No axe runner is installed. | Do not convert this unavailable environment into PASS. |
