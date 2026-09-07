@@ -2,7 +2,7 @@
 
 ## Record status
 
-The original repaired-head record below remains intact. A second bounded repair was executed on the working tree based on branch HEAD `5c0f4273ccc0ac00fda5d765da625da3fe5032e4`. The serialized-bundle performance and limit-documentation findings are repaired. Bounded axe automation is now present. Direct `file://` execution remains `NOT_RUN` for the recorded environment reason. On `2026-09-01`, the owner explicitly removed reduced-motion emulation from the merge requirements. This is an owner waiver, not a test pass. The three direct-file rows remain merge-blocking. A `NOT_RUN` check is not a pass.
+The original repaired-head record below remains intact. A second bounded repair was executed on the working tree based on branch HEAD `5c0f4273ccc0ac00fda5d765da625da3fe5032e4`. The serialized-bundle performance and limit-documentation findings are repaired. Bounded axe automation is now present. Direct `file://` execution remains `NOT_RUN` for the recorded environment reason. On `2026-09-01`, the owner explicitly removed reduced-motion emulation from the merge requirements. On `2026-09-07`, the owner explicitly waived the three direct-file checks and authorized the merge of PR #18. These are owner waivers, not test passes. A `NOT_RUN` check is not a pass.
 
 ## Second bounded blocker repair
 
@@ -29,12 +29,12 @@ Recorded at `2026-08-31T14:39:32Z` on branch `yanitedhacker/runtime-lens`. The c
 
 | Check | Status | Exact reason | Merge effect |
 | --- | --- | --- | --- |
-| Direct JSON `file:///tmp/codeville-runtime-atlas.html` execution | `NOT_RUN` | Codex In-app Browser rejected the URL under its browser security policy and prohibited alternate-browser or indirect workarounds. | Blocking. |
-| Direct JSONL `file:///tmp/codeville-runtime-atlas-jsonl.html` execution | `NOT_RUN` | The same direct-file policy applies. | Blocking. |
-| Combined direct-file Runtime Lens, synchronized views, source handoff, text timeline, responsive layout, target sizes, and Markdown workflow | `NOT_RUN` | Direct generated-file execution is unavailable in this browser environment. Local-server and static artifact evidence do not replace it. | Blocking. |
+| Direct JSON `file:///tmp/codeville-runtime-atlas.html` execution | `WAIVED` | The check remains `NOT_RUN` because Codex In-app Browser rejected the URL under its browser security policy and prohibited alternate-browser or indirect workarounds. On `2026-09-07`, the owner waived this check. It is not claimed as a pass. | Not blocking by explicit owner decision. |
+| Direct JSONL `file:///tmp/codeville-runtime-atlas-jsonl.html` execution | `WAIVED` | The check remains `NOT_RUN` under the same direct-file policy. On `2026-09-07`, the owner waived this check. It is not claimed as a pass. | Not blocking by explicit owner decision. |
+| Combined direct-file Runtime Lens, synchronized views, source handoff, text timeline, responsive layout, target sizes, and Markdown workflow | `WAIVED` | Direct generated-file execution remains unavailable in this browser environment. Local-server and static artifact evidence do not replace it. On `2026-09-07`, the owner waived this check. It is not claimed as a pass. | Not blocking by explicit owner decision. |
 | Manual reduced-motion emulation | `WAIVED` | On `2026-09-01`, the owner stated: "no need for reduce motion, proceed without it". The check was removed from the merge requirements and is not claimed as a pass. | Not blocking by explicit owner decision. |
 
-The merge gate remains closed on the three direct-file rows. The exact manual handoff inputs are `/tmp/codeville-runtime-atlas.html`, `/tmp/codeville-runtime-atlas-jsonl.html`, and `/tmp/codeville-runtime-report.md`.
+The owner revised the merge gate on `2026-09-07` and explicitly authorized the merge of PR #18. The exact direct-file checks remain unavailable and are not claimed as passes.
 
 ## Execution identity
 
