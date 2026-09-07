@@ -195,6 +195,17 @@ describe('buildAtlas', () => {
     expect(built.nodes.some((n) => n.path.startsWith('benchmarks/b'))).toBe(false)
   })
 
+  it('keeps a deep runtime source file visible when the default node budget has room', () => {
+    const built = buildAtlas(
+      [{ path: 'packages/core/src/runtime/index.ts', text: 'export const runtime = true\n' }],
+      { now: NOW },
+    )
+
+    expect(built.nodes).toContainEqual(
+      expect.objectContaining({ path: 'packages/core/src/runtime/index.ts', kind: 'file' }),
+    )
+  })
+
   it('respects the node budget on a wide repo', () => {
     const wide: VirtualFile[] = Array.from({ length: 800 }, (_, i) => ({
       path: `src/mod${i}/index.ts`,

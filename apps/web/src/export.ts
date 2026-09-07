@@ -1,10 +1,10 @@
-import type { Atlas } from '@codeville/core'
+import type { Atlas, RuntimeTraceBundle } from '@codeville/core'
 import { renderStandaloneHtml, STANDALONE_CSS, STANDALONE_JS } from '@codeville/atlas-ui'
 
 /** Inlines the standalone bundle + this atlas into one offline-capable file. */
-export async function exportAtlas(atlas: Atlas): Promise<void> {
+export async function exportAtlas(atlas: Atlas, runtime?: RuntimeTraceBundle): Promise<void> {
   const [js, css] = await Promise.all([text(STANDALONE_JS), text(STANDALONE_CSS)])
-  const html = renderStandaloneHtml(atlas, js, css)
+  const html = renderStandaloneHtml(atlas, js, css, runtime)
   const url = URL.createObjectURL(new Blob([html], { type: 'text/html' }))
   const a = document.createElement('a')
   a.href = url

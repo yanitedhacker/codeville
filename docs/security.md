@@ -26,6 +26,60 @@ One file: inlined CSS, inlined JS, inlined atlas JSON. No fonts, no CDNs, no `fe
 
 The export bundle aliases React to Preact at build time (`packages/atlas-ui/vite.config.ts`). That is a size choice, not a security boundary.
 
+## Runtime trace import and export
+
+An imported trace is a second hostile input. The attacker can control OTLP structure, identifiers, timestamps, names, attributes, events, links, recorded source paths, and schema URLs. Import is local and all-or-nothing: a syntax, schema, identifier, time, duplicate-conflict, UTF-8, or limit failure rejects the complete new import. It does not expose a partial replacement bundle or remove a prior accepted bundle.
+
+Browser and CLI trace import use these default limits:
+
+| Limit | Default |
+| --- | ---: |
+| Input | 25 MiB |
+| One JSONL line | 8 MiB |
+| Traces | 10,000 |
+| Total spans | 50,000 |
+| Spans per trace | 20,000 |
+| Resource/scope groups | 2,000 |
+| Attributes per owner | 128 |
+| Events per span | 256 |
+| Links per span | 128 |
+| Attribute depth | 8 |
+| Each retained owner string or bytes leaf | 16 KiB |
+| Total retained error-path IDs | 1,000,000 |
+| Serialized runtime bundle | 64 MiB |
+
+`maxValueBytes` applies to every retained owner string: attribute keys, schema URLs, scope names and versions, span names and trace state, link trace state, status messages, event names, and unknown-field diagnostic paths. It also applies to every retained string or byte attribute leaf. The serialized-bundle limit is checked incrementally during derivation, after source correlation, and after script-safe escaping for standalone export. Codeville rejects the first measured byte prefix above the limit instead of measuring the rest of an over-limit bundle.
+
+Before Codeville exposes a normalized bundle, it matches attribute keys without case and redacts values for exactly these 15 keys:
+
+```text
+authorization, cookie, token, secret, password, credential,
+api-key, api_key, private-key, private_key, session,
+db.statement, db.query.text, http.request.body, http.response.body
+```
+
+The key remains with a typed redaction marker, and the import report records the exact redaction count. This rule applies to resource, scope, span, event, and link attributes. Exact trace IDs and span IDs remain because they are evidence identities and parent-link keys.
+
+The importer releases the raw input after import. It does not retain, cache, write into the repository, or embed the original OTLP text. Codeville imports a local file; it has no OTLP receiver and does not launch, execute, or instrument the target repository. Import-time code does not use `fetch`, XMLHttpRequest (XHR), WebSocket, `sendBeacon`, `localStorage`, `sessionStorage`, or Worker, and it does not write to the repository. This is a bounded list of tested import-time APIs, not a claim about every browser persistence API.
+
+React text nodes and canvas text are the display sinks for imported values. Runtime code does not use `innerHTML` or evaluate imported values. Standalone export embeds only the normalized sanitized `RuntimeTraceBundle` through the existing script-breakout escaping path. It never embeds raw OTLP text. The runtime export uses this exact Content Security Policy:
+
+```text
+default-src 'none'; connect-src 'none'; img-src data:;
+style-src 'unsafe-inline'; script-src 'unsafe-inline';
+font-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'
+```
+
+The evidence labels have narrow meanings:
+
+- **Hot path**: the root-to-leaf parent chain with the greatest sum of recorded span durations. It is not a distributed critical-path proof.
+- **Error path**: a recorded error span and its known parent ancestry. It is not a root-cause claim.
+- **Source match**: an exact normalized file-path match. A function name or line number adds context but does not prove function execution beyond the span producer's recorded attribute.
+
+Source correlation uses an explicit source root and exact normalized paths. It does not use basename or suffix guessing and does not create an import edge or runtime call edge. Static `AtlasLink` evidence and `Trace one step` behavior do not change.
+
+Markdown reports remain static-source reports. When HTML generation uses both `--trace` and `--report`, the report states exactly: `Runtime trace data is not included in this static-source Markdown report.` Runtime data is imported observation. It is not Codeville capture, target instrumentation, field qualification, or a complete execution proof.
+
 ## Explainers — `packages/core/src/explain/adapters.ts`
 
 An adapter may only write `summary` (`applyExplanations` in `packages/core/src/explain/index.ts`). Role, fan-in, excerpt, and the rest are derived. A failing adapter degrades to the heuristic; the atlas is still written.

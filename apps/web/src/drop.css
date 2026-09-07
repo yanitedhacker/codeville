@@ -125,3 +125,84 @@
   cursor: pointer;
   text-decoration: underline;
 }
+
+.cv-runtime-app-background {
+  position: absolute;
+  inset: 0;
+}
+
+.cv-runtime-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  padding: 16px;
+  overflow: auto hidden;
+  background: rgb(26 28 17 / 48%);
+}
+
+.cv-runtime-dialog {
+  box-sizing: border-box;
+  width: min(520px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  overflow: auto;
+  padding: 24px;
+  border: 1px solid #1a1c11;
+  background: #eae7c8;
+  color: #1a1c11;
+  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+}
+
+.cv-runtime-dialog h2 {
+  margin: 0 0 8px;
+  font-family: "Inter", -apple-system, "Helvetica Neue", Arial, sans-serif;
+  font-size: 20px;
+}
+
+.cv-runtime-dialog p {
+  margin: 0 0 16px;
+  line-height: 1.5;
+}
+
+.cv-runtime-dialog form {
+  display: grid;
+  gap: 8px;
+}
+
+.cv-runtime-dialog label {
+  margin-top: 8px;
+}
+
+.cv-runtime-dialog input {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  font: inherit;
+}
+
+.cv-runtime-dialog-status,
+.cv-runtime-dialog-error {
+  margin: 8px 0 0 !important;
+}
+
+.cv-runtime-dialog-error {
+  color: #7a2f1d;
+}
+
+.cv-runtime-dialog-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+@media (max-width: 480px) {
+  .cv-runtime-dialog input,
+  .cv-runtime-dialog .cv-btn {
+    min-height: 44px;
+  }
+}

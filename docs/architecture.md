@@ -1,6 +1,6 @@
 # How the picture is built
 
-Everything meets at one type, `Atlas` in `packages/core/src/types.ts`. The analyzer writes it, the renderer reads it, export inlines it. Nothing else crosses that line.
+Static source data meets at one type, `Atlas` in `packages/core/src/types.ts`. The analyzer writes it, the static renderer reads it, and static export inlines it. Imported runtime evidence crosses a separate serializable `RuntimeTraceBundle` boundary. The two contracts do not add facts to each other.
 
 HTML, JSON, and Markdown consume the same analyzed `Atlas`. Markdown is a pure formatter, and the CLI `--report` option never triggers a second scan or explainer pass.
 
@@ -13,10 +13,14 @@ packages/core/       analyzer — pure TS, no DOM, runs in the browser and in no
   graph.ts             nodes, links, areas, rollup, evidence, coverage
   layout.ts            deterministic seeded City layout — never Math.random
   layout-dependency.ts dependency layout — import springs, weaker containment
+  runtime/             OTLP framing, normalization, redaction, derivation,
+                       exact source correlation, and RuntimeTraceBundle types
   explain/             Explainer interface + heuristic and AI adapters
 packages/atlas-ui/   renderer — canvas2d + React, also builds the export bundle
+  src/runtime/          Runtime Lens state, DOM evidence views, and timeline canvas
 packages/cli/        the codeville command
 apps/web/            Vite app: drop zone, GitHub input, export button
+  src/runtime/          browser-local trace file ingest and import dialog
 ```
 
 Three front doors converge on `buildAtlas(files)`:
@@ -28,6 +32,16 @@ Three front doors converge on `buildAtlas(files)`:
 | GitHub URL | `apps/web/api/github.ts` | fetches the tarball server-side |
 
 The GitHub route exists because `codeload.github.com` serves no CORS headers. Caps and `ref` rules: [security.md](security.md).
+
+Runtime import uses a separate path after a static atlas exists:
+
+```text
+OTLP JSON/JSONL -> parse -> normalize/redact -> derive -> exact correlate -> Runtime Lens -> offline export
+```
+
+The core runtime modules frame and validate the local OTLP documents, preserve exact evidence identities, redact sensitive attributes, derive trace relationships, and correlate only exact normalized source paths. Atlas UI owns the Runtime Lens projections and its timeline renderer. The web and CLI adapters supply local trace input. Offline HTML can embed the normalized sanitized `RuntimeTraceBundle`; raw OTLP text does not cross the export boundary.
+
+Runtime evidence does not change `AtlasLink`, static packets, or the existing `Trace one step` behavior. Static imports remain repository-derived facts. Runtime spans remain observations from imported trace data.
 
 ## Extraction
 

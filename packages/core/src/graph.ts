@@ -17,7 +17,7 @@ interface ResolvedFact {
   resolution: ImportResolution
 }
 
-export const DEFAULT_ROLLUP_DEPTH = 3
+export const DEFAULT_ROLLUP_DEPTH = 4
 /** Fraction of an area that must be reference material before it folds to one slab. */
 export const DENSE_SHARE = 0.7
 export const DEFAULT_MAX_NODES = 220

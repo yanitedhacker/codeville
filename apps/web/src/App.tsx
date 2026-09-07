@@ -1,9 +1,18 @@
 import { useCallback, useRef, useState } from 'react'
-import { applyExplanations, buildAtlas, toRequests, type Atlas as AtlasData } from '@codeville/core'
+import {
+  applyExplanations,
+  buildAtlas,
+  RuntimeImportError,
+  toRequests,
+  type Atlas as AtlasData,
+  type RuntimeTraceBundle,
+} from '@codeville/core'
 import { heuristic } from '@codeville/core/explain/heuristic'
 import { Atlas } from '@codeville/atlas-ui'
 import { fromDataTransfer, fromFileList, fromGithub, type Ingested } from './ingest/index.js'
 import { exportAtlas } from './export.js'
+import { ingestRuntimeFile } from './runtime/ingest.js'
+import { RuntimeImportDialog } from './runtime/RuntimeImportDialog.js'
 import './drop.css'
 
 type Phase = { kind: 'idle' } | { kind: 'working'; label: string } | { kind: 'error'; message: string }
@@ -13,8 +22,14 @@ export function App() {
   const [phase, setPhase] = useState<Phase>({ kind: 'idle' })
   const [dragging, setDragging] = useState(false)
   const [repoInput, setRepoInput] = useState('')
+  const [runtime, setRuntime] = useState<RuntimeTraceBundle | null>(null)
+  const [runtimeImportOpen, setRuntimeImportOpen] = useState(false)
+  const [runtimeImportBusy, setRuntimeImportBusy] = useState(false)
+  const [runtimeImportError, setRuntimeImportError] = useState<string | null>(null)
   const folderRef = useRef<HTMLInputElement>(null)
   const zipRef = useRef<HTMLInputElement>(null)
+  const runtimeImportButtonRef = useRef<HTMLButtonElement>(null)
+  const runtimeImportAttemptRef = useRef(0)
 
   const run = useCallback(async (label: string, load: () => Promise<Ingested>) => {
     setPhase({ kind: 'working', label })
@@ -42,18 +57,96 @@ export function App() {
     }
   }, [])
 
+  const importRuntime = useCallback(async (file: File, sourceRoot?: string) => {
+    if (!atlas) return
+    const attempt = ++runtimeImportAttemptRef.current
+    setRuntimeImportError(null)
+    setRuntimeImportBusy(true)
+    try {
+      const imported = await ingestRuntimeFile(file, atlas, sourceRoot ? { sourceRoot } : {})
+      if (attempt !== runtimeImportAttemptRef.current) return
+      setRuntime(imported)
+      setRuntimeImportOpen(false)
+    } catch (error) {
+      if (attempt !== runtimeImportAttemptRef.current) return
+      setRuntimeImportError(
+        error instanceof RuntimeImportError
+          ? error.message
+          : 'Could not import that runtime trace.',
+      )
+    } finally {
+      if (attempt === runtimeImportAttemptRef.current) setRuntimeImportBusy(false)
+    }
+  }, [atlas])
+
+  const clearRuntime = useCallback(() => {
+    runtimeImportAttemptRef.current += 1
+    setRuntime(null)
+    setRuntimeImportBusy(false)
+    setRuntimeImportError(null)
+  }, [])
+
+  const cancelRuntimeImport = useCallback(() => {
+    runtimeImportAttemptRef.current += 1
+    setRuntimeImportOpen(false)
+    setRuntimeImportBusy(false)
+    setRuntimeImportError(null)
+  }, [])
+
+  const newRepository = useCallback(() => {
+    runtimeImportAttemptRef.current += 1
+    setRuntime(null)
+    setRuntimeImportOpen(false)
+    setRuntimeImportBusy(false)
+    setRuntimeImportError(null)
+    setAtlas(null)
+  }, [])
+
   if (atlas) {
+    const footerExtra = (
+      <>
+        <button
+          className="cv-inline-btn"
+          onClick={() => runtime ? exportAtlas(atlas, runtime) : exportAtlas(atlas)}
+        >
+          {runtime ? 'Export HTML (includes sanitized telemetry)' : 'Export html'}
+        </button>
+        <button
+          ref={runtimeImportButtonRef}
+          className="cv-inline-btn"
+          onClick={() => {
+            setRuntimeImportError(null)
+            setRuntimeImportOpen(true)
+          }}
+        >
+          Import OTLP trace
+        </button>
+        <button className="cv-inline-btn" onClick={newRepository}>New repo</button>
+        {' · '}
+      </>
+    )
+
     return (
-      <Atlas
-        atlas={atlas}
-        footerExtra={
-          <>
-            <button className="cv-inline-btn" onClick={() => exportAtlas(atlas)}>Export html</button>
-            <button className="cv-inline-btn" onClick={() => setAtlas(null)}>New repo</button>
-            {' · '}
-          </>
-        }
-      />
+      <>
+        <div
+          className="cv-runtime-app-background"
+          inert={runtimeImportOpen || undefined}
+          aria-hidden={runtimeImportOpen || undefined}
+        >
+          {runtime
+            ? <Atlas atlas={atlas} runtime={runtime} initialMode="runtime" onClearRuntime={clearRuntime} footerExtra={footerExtra} />
+            : <Atlas atlas={atlas} footerExtra={footerExtra} />}
+        </div>
+        {runtimeImportOpen && (
+          <RuntimeImportDialog
+            busy={runtimeImportBusy}
+            error={runtimeImportError}
+            returnFocusRef={runtimeImportButtonRef}
+            onCancel={cancelRuntimeImport}
+            onImport={importRuntime}
+          />
+        )}
+      </>
     )
   }
 

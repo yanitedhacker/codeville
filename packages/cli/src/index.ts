@@ -1,10 +1,22 @@
 #!/usr/bin/env node
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
+import { constants } from 'node:fs'
+import { mkdir, open, readFile, rename, writeFile } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
 import { homedir } from 'node:os'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { buildAtlas, renderAtlasMarkdown, sourceDigest, type Atlas, type VirtualFile } from '../../core/src/index.js'
+import {
+  buildAtlas,
+  correlateRuntimeSources,
+  DEFAULT_RUNTIME_IMPORT_LIMITS,
+  importOtlpTraceJson,
+  renderAtlasMarkdown,
+  RuntimeImportError,
+  sourceDigest,
+  type Atlas,
+  type RuntimeTraceBundle,
+  type VirtualFile,
+} from '../../core/src/index.js'
 import { applyExplanations, toRequests, type Explanation } from '../../core/src/explain/index.js'
 import { heuristic } from '../../core/src/explain/heuristic.js'
 import { resolveExplainer } from '../../core/src/explain/adapters.js'
@@ -20,6 +32,8 @@ interface GenerateArgs {
   root: string
   out: string
   report?: string
+  trace?: string
+  traceSourceRoot?: string
   explain: string
   maxNodes?: number
   exclude: string[]
@@ -36,6 +50,8 @@ codeville ask <path-to-repo> --node <file> --fn <name> --question <text> [option
                          generate default: <name>-atlas.html
                          ask default: do not write
       --report <file>     additionally write a facts-only Markdown report
+      --trace <file>      local OTLP JSON or JSONL trace
+      --trace-source-root <path>  source root recorded by code.file.path
   -e, --explain <spec>   heuristic | codex | claude | openai | anthropic
                          | cli:<command> | module:<path>   default: heuristic
       --max-nodes <n>    visible node budget (includes packages)   default: 220
@@ -92,6 +108,12 @@ async function generate(args: GenerateArgs): Promise<void> {
   log(`atlas: ${atlas.stats.nodes} nodes · ${atlas.stats.links} links · ${atlas.stats.packages} packages`)
 
   atlas = await explain(atlas, args, files)
+  const runtime = args.trace === undefined
+    ? undefined
+    : await readRuntimeTrace(args.trace, atlas, args.traceSourceRoot ?? args.root)
+  if (runtime !== undefined) {
+    log(`runtime: ${runtime.report.traces} traces · ${runtime.report.spans} spans`)
+  }
 
   if (args.out.endsWith('.json')) {
     await write(args.out, JSON.stringify(atlas, null, 2))
@@ -104,15 +126,59 @@ async function generate(args: GenerateArgs): Promise<void> {
         throw new Error('Export bundle missing. Run: pnpm -F @codeville/atlas-ui build')
       }),
     ])
-    await write(args.out, renderStandaloneHtml(atlas, js, css))
+    await write(args.out, renderStandaloneHtml(atlas, js, css, runtime))
   }
 
   if (args.report) {
-    await write(args.report, renderAtlasMarkdown(atlas))
+    const exclusion = runtime === undefined
+      ? ''
+      : '\nRuntime trace data is not included in this static-source Markdown report.\n'
+    await write(args.report, `${renderAtlasMarkdown(atlas)}${exclusion}`)
     log(`wrote ${args.report}`)
   }
 
   log(`wrote ${args.out} in ${Date.now() - t0}ms`)
+}
+
+export async function readRuntimeTrace(
+  path: string,
+  atlas: Atlas,
+  sourceRoot: string,
+): Promise<RuntimeTraceBundle> {
+  const limit = DEFAULT_RUNTIME_IMPORT_LIMITS.maxInputBytes
+  const handle = await open(path, constants.O_RDONLY | constants.O_NONBLOCK)
+  let bytes: Buffer
+  try {
+    const metadata = await handle.stat()
+    if (!metadata.isFile()) {
+      throw new RuntimeImportError('schema', 'Runtime trace must be a regular file.')
+    }
+    if (metadata.size > limit) throw RuntimeImportError.limit('maxInputBytes', metadata.size)
+
+    const capacity = Math.min(metadata.size + 1, limit + 1)
+    const buffer = Buffer.alloc(capacity)
+    let bytesRead = 0
+    while (bytesRead < capacity) {
+      const result = await handle.read(buffer, bytesRead, capacity - bytesRead, null)
+      if (result.bytesRead === 0) break
+      bytesRead += result.bytesRead
+    }
+    if (bytesRead > metadata.size) {
+      throw new RuntimeImportError('syntax', 'Runtime trace changed while it was being read.')
+    }
+    bytes = buffer.subarray(0, bytesRead)
+  } finally {
+    await handle.close()
+  }
+
+  let text: string
+  try {
+    text = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+  } catch {
+    throw new RuntimeImportError('syntax', 'Runtime trace is not valid UTF-8.')
+  }
+
+  return correlateRuntimeSources(importOtlpTraceJson(text), atlas, { sourceRoot })
 }
 
 async function explain(atlas: Atlas, args: GenerateArgs, files: VirtualFile[]): Promise<Atlas> {
@@ -217,6 +283,8 @@ function parseArgs(argv: string[]): CliArgs | null {
   let root: string | null = null
   let out: string | null = null
   let report: string | undefined
+  let trace: string | undefined
+  let traceSourceRoot: string | undefined
   let explainSpec = 'heuristic'
   let maxNodes: number | undefined
   let exclude: string[] = []
@@ -234,9 +302,16 @@ function parseArgs(argv: string[]): CliArgs | null {
       if (value === undefined) throw new Error(`${arg} needs a value`)
       return value
     }
+    const nextPath = (): string => {
+      const value = next()
+      if (!value.trim()) throw new Error(`${arg} needs a non-empty path`)
+      return value
+    }
     if (arg === '-h' || arg === '--help') return null
     else if (arg === '-o' || arg === '--out') out = next()
     else if (command === 'generate' && arg === '--report') report = next()
+    else if (command === 'generate' && arg === '--trace') trace = nextPath()
+    else if (command === 'generate' && arg === '--trace-source-root') traceSourceRoot = nextPath()
     else if (arg === '-e' || arg === '--explain') explainSpec = next()
     else if (arg === '--max-nodes') {
       const n = Number(next())
@@ -278,11 +353,21 @@ function parseArgs(argv: string[]): CliArgs | null {
     }
   }
 
+  const resolvedOut = resolve(process.cwd(), out ?? `${slugName(abs.split('/').pop() ?? 'repo')}-atlas.html`)
+  if (trace !== undefined && resolvedOut.endsWith('.json')) {
+    throw new Error('--trace requires HTML output')
+  }
+  if (traceSourceRoot !== undefined && trace === undefined) {
+    throw new Error('--trace-source-root requires --trace')
+  }
+
   return {
     command: 'generate',
     ...shared,
-    out: resolve(process.cwd(), out ?? `${slugName(abs.split('/').pop() ?? 'repo')}-atlas.html`),
+    out: resolvedOut,
     ...(report ? { report: resolve(process.cwd(), report) } : {}),
+    ...(trace !== undefined ? { trace: resolve(process.cwd(), trace) } : {}),
+    ...(traceSourceRoot !== undefined ? { traceSourceRoot: resolve(process.cwd(), traceSourceRoot) } : {}),
   }
 }
 

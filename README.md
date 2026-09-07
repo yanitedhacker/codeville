@@ -37,6 +37,7 @@ The guided tour, dependency focus/cones, directed paths, and `Trace one step` ar
 - Select a node and focus its dependencies or dependents to inspect a topology-derived cone. Select two nodes with Shift-click and use Find directed path to show a shortest directed path in the visible slice.
 - The guided tour walks the visible areas, dependency hubs, external boundary, and whole system. It is derived from the same static atlas data.
 - Select an arc to inspect its endpoints, extraction confidence, source locations, and sample import statements.
+- Runtime Lens imports local OpenTelemetry Protocol (OTLP) `.json` or `.jsonl` trace data. It shows observed spans in a separate timeline, call tree, hot path, error paths, details panel, and exact source-file handoff. It does not change the static atlas or `Trace one step` evidence.
 - The browser can export the current atlas as one standalone HTML file. The downloaded file inlines the atlas, JavaScript, and CSS and makes no network requests when opened offline.
 
 Folders and zip archives are read in the browser. The GitHub input route fetches the archive through the server; after analysis, the exported HTML is self-contained.
@@ -63,12 +64,20 @@ CLI:
 pnpm atlas . -o atlas.html
 pnpm atlas . -o atlas.json
 pnpm atlas . -o atlas.html --report atlas.md
+pnpm atlas . \
+  --trace fixtures/runtime/minimal-otlp.json \
+  --trace-source-root "$PWD" \
+  -o codeville-runtime.html
 pnpm atlas ask . --node packages/core/src/graph.ts --fn buildGraph \
   --question "What does this function contribute to the graph?"
 open atlas.html
 ```
 
 `-o` writes standalone HTML for `.html` paths or the atlas data as pretty-printed JSON for `.json` paths. The default is `<repo>-atlas.html`. The optional `--report` output is a facts-only Markdown snapshot of the visible slice; it contains no source excerpts or AI prose. HTML export requires the standalone bundle, built with `pnpm -F @codeville/atlas-ui build`.
+
+`--trace` accepts a local OTLP `.json` object or `.jsonl` file. A JSON file contains one document. Each non-empty JSONL line is one document. Runtime trace import is available only for HTML output. `--trace` with `.json` Atlas output is rejected. `--trace-source-root` is optional and supplies the source root that was recorded in `code.file.path`; if you omit it in the CLI, Codeville uses the analyzed repository root. Markdown reports stay static-source reports and exclude runtime trace data.
+
+In the browser, import a local `.json` or `.jsonl` trace after the static atlas exists. When runtime data exists, use `Export HTML (includes sanitized telemetry)` to write a self-contained HTML file with the normalized, sanitized runtime bundle. Raw OTLP input is not included.
 
 `codeville ask <path-to-repo> --node <repo-relative-file> --fn <outline-symbol> --question <text>` prints an answer about a named symbol in its atlas context. The symbol must appear in that file's extracted outline. Pass `--atlas atlas.json` to reuse a generated JSON atlas instead of rebuilding it. The ask command does not execute code or collect runtime evidence.
 
@@ -84,6 +93,7 @@ Common generation options:
 - Folder and zip never leave the browser.
 - GitHub paste is the only server fetch (codeload), because that host has no CORS.
 - CLI writes one HTML file. Open it from `file://`. Zero network.
+- Runtime import is a separate local flow: OTLP JSON or JSONL is parsed, normalized, redacted, derived, and exactly correlated against visible source paths before Runtime Lens or offline HTML receives it. It does not add runtime facts to static import links.
 - AI explainers are optional and only add a summary sentence. They never replace derived fields. CLI adapters use a binary you already signed into.
 
 ## Inspiration
@@ -109,6 +119,8 @@ Folder and zip ingest are client-side. The GitHub route is capped: 90MB archive,
 `--explain openai` / `anthropic`: keys from the environment, never written into the atlas, the cache, or the logs.
 
 Cache lives in `~/.cache/codeville`, never inside the target repo.
+
+Runtime trace import is local and all-or-nothing. Codeville releases the raw input after import, keeps exact trace and span IDs, redacts configured sensitive attribute values, and exports only the normalized sanitized bundle. Runtime data is imported observation. It is not Codeville capture, field qualification, or a complete execution proof.
 
 See [SECURITY.md](SECURITY.md).
 
